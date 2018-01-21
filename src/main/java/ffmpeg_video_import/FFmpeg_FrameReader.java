@@ -1,6 +1,7 @@
-package FFmpeg_FrameReader;
+package ffmpeg_video_import;
 
 import java.io.File;
+import java.util.Locale;
 import java.util.Properties;
 
 import org.bytedeco.javacv.FFmpegFrameGrabber;
@@ -54,7 +55,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		String options = IJ.isMacro()?Macro.getOptions():null;
 		if (options!=null && options.contains("select=") && !options.contains("open="))
 			Macro.setOptions(options.replaceAll("select=", "open="));
-		if (arg!=null && arg!="" && arg.contains("importquiet=true")) displayDialog=false;
+		if (arg!=null && !arg.equals("") && arg.contains("importquiet=true")) displayDialog=false;
 		OpenDialog	od = new OpenDialog("Open Video File", arg);
 		String fileName = od.getFileName();
 		if (fileName == null) return;
@@ -75,9 +76,9 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		fi.fileName = fileName;
 		fi.directory = fileDir;
 		imp.setFileInfo(fi);
-		if (arg.equals(""))
-			imp.show();
-		
+		imp.setProperty("video_fps", frameRate);
+		imp.setProperty("stack_source_type", "ffmpeg_frame_grabber");
+		if (arg.equals("")) imp.show();
 	}
 	
 	public ImageStack makeStack (String videoFilePath, boolean convertToGray, boolean flipVertical){
@@ -111,7 +112,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				framesTimeStamps = new long[nSlices];
 				currentFrame = 0;
 				this.videoFilePath = videoFilePath;
-				labels[currentFrame] = String.format("%8.6fs", frame.timestamp/1000000.0);
+				labels[currentFrame] = String.format(Locale.US, "%8.6f s", frame.timestamp/1000000.0);//.format(null, "%8.6f s", frame.timestamp/1000000.0);
 				framesTimeStamps[currentFrame] = frame.timestamp;
 				stack = this;
 				return stack;
@@ -254,7 +255,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				frame = grabber.grab();
 				frame.timestamp = tst;
 				
-				labels[++currentFrame] = String.format("%8.6fs", frame.timestamp/1000000.0);
+				labels[++currentFrame] = String.format(Locale.US, "%8.6f s", frame.timestamp/1000000.0);//.format("%8.6f s", frame.timestamp/1000000.0);
 				framesTimeStamps[currentFrame] = frame.timestamp;
 			} catch (Exception e) {
 				
