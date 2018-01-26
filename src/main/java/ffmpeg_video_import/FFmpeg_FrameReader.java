@@ -100,7 +100,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						currentIMP = new ImagePlus("",converter.convert(frame));
 					}
 				} catch (Exception e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 					return null;
 				}
@@ -255,7 +254,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				frame = grabber.grab();
 				frame.timestamp = tst;
 				
-				labels[++currentFrame] = String.format(Locale.US, "%8.6f s", frame.timestamp/1000000.0);//.format("%8.6f s", frame.timestamp/1000000.0);
+				labels[++currentFrame] = String.format(Locale.US, "%8.6f s", frame.timestamp/1000000.0);
 				framesTimeStamps[currentFrame] = frame.timestamp;
 			} catch (Exception e) {
 				
