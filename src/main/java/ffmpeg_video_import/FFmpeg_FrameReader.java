@@ -2,7 +2,7 @@ package ffmpeg_video_import;
 
 //uncomment this if javacv version < 1.5 
 //import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
-//uncomment this if javacv version >= 1.5
+//uncomment this if javacv version >= 1.5 
 import static org.bytedeco.ffmpeg.global.avutil.*;
 
 import java.awt.*;
