@@ -14,7 +14,7 @@
 
 	<groupId>anotherche.plugins.imagej</groupId> 
     <artifactId>FFmpeg_FrameReader</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0</version>
 	
 	<name>FFmpeg_FrameReader.jar</name>
 	<description>Opens video files supported by FFmpeg as virtual stack of frame sequence. ImageJ plugin.</description>
