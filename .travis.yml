@@ -1,4 +1,6 @@
 language: java
+before_install:
+  - chmod +x build.sh
 dist: trusty
 jdk: oraclejdk8
 branches:
