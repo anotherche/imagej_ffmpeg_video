@@ -1,19 +1,25 @@
 package ffmpeg_video_import;
 
-import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
+//uncomment this if javacv version < 1.5 
+//import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
+//uncomment this if javacv version >= 1.5
+import static org.bytedeco.ffmpeg.global.avutil.*;
 
 import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
 import java.util.Locale;
-
 import javax.swing.JSlider;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
+import org.bytedeco.ffmpeg.avformat.AVFormatContext;
+import org.bytedeco.ffmpeg.avformat.AVStream;
+import org.bytedeco.ffmpeg.avutil.AVRational;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
 import org.bytedeco.javacv.FrameGrabber.Exception;
+
 
 
 
@@ -38,6 +44,9 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	private String fileDirectory;
 	private String fileName;
 	private int nTotalFrames;
+	private int nb_frames_estimated;
+	private int nb_frames_in_video;
+	private double video_stream_duration;
 	private Java2DFrameConverter converter;
 	private FFmpegFrameGrabber grabber;
 	private Frame frame;
@@ -72,6 +81,8 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		if (arg!=null && !arg.isEmpty()) {
 			if (arg.contains("importquiet=true")) displayDialog=false;
 		}
+		
+
 		
 		OpenDialog	od = new OpenDialog("Open Video File", arg);
 		String fileName = od.getFileName();
@@ -161,10 +172,36 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				frameRate = grabber.getFrameRate();
 				frameWidth = grabber.getImageWidth();
 				frameHeight = grabber.getImageHeight();
-				nTotalFrames = grabber.getLengthInFrames();
+				nb_frames_estimated = grabber.getLengthInFrames();
+				AVFormatContext avctx = grabber.getFormatContext();
+				int nbstr = avctx.nb_streams();
+				for (int istr=0;istr<nbstr;istr++)
+				{
+					AVStream avstr = avctx.streams(istr);
+					if (AVMEDIA_TYPE_VIDEO == avstr.codecpar().codec_type())
+					{
+						nb_frames_in_video = (int) avstr.nb_frames();
+						
+						if (nb_frames_in_video!=0 
+							&& (nb_frames_in_video*1.0)/nb_frames_estimated<1.1
+							&& (nb_frames_in_video*1.0)/nb_frames_estimated>0.9)
+							nTotalFrames = nb_frames_in_video;
+						else nTotalFrames = nb_frames_estimated;
+						
+						AVRational video_stream_tb = avstr.time_base();
+						video_stream_duration = Double.NaN;
+						if(video_stream_tb.den()!=0)
+							video_stream_duration = avstr.duration()*video_stream_tb.num()/(double)video_stream_tb.den();
+						if (video_stream_duration<=0) video_stream_duration=Double.NaN;
+						 
+						break;
+					}
+				}
+				
 				videoFilePath = path;
 				startTime = grabber.getFormatContext().start_time();
 				if (startTime ==  AV_NOPTS_VALUE) startTime = 0;
+				//startTime = 0;
 //				LogStream.redirectSystem();
 //				av_dump_format(grabber.getFormatContext(), 0, path, 0);
 				importInitiated = true;
@@ -207,31 +244,53 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		
 
 		if (InitImport(path)) {
+			IJ.log("--------------");
 			IJ.log("File name: "+fileName);
+			IJ.log("Estimated frames = "+nb_frames_estimated);
+			IJ.log("Frames in video stream = "+nb_frames_in_video);
 			IJ.log("Total frames = "+nTotalFrames);
 			IJ.log("Format = "+grabber.getFormat());
-			IJ.log("Duration = "+(grabber.getLengthInTime()/1000000.0)+" s");
-			IJ.log("Frame rate = "+grabber.getFrameRate());
+			IJ.log("Duration = "+(grabber.getLengthInTime()/(AV_TIME_BASE*1.0))+" s");
+			IJ.log("Video duration = "+video_stream_duration+" s");
+			IJ.log("Avarage frame rate = "+grabber.getFrameRate());
 			IJ.log("Width = "+grabber.getImageWidth());
 			IJ.log("Height = "+grabber.getImageHeight());
 			//IJ.log("Start time = "+grabber.getFormatContext().start_time());
 			
-			
+			//// additional metadata info 
+//			IJ.log("--------------");
+//			IJ.log("File Metadata:");
+//			Map<String,String> md = grabber.getMetadata();
+//			for (Map.Entry<String,String> entry : md.entrySet())
+//				IJ.log(entry.getKey()+": "+entry.getValue());
+//			
+//			IJ.log("--------------");
+//			IJ.log("Video Metadata:");
+//				Map<String,String> vmd = grabber.getVideoMetadata();
+//				for (Map.Entry<String,String> entry : vmd.entrySet())
+//					IJ.log(entry.getKey()+": "+entry.getValue());
+				
+		
 			previewImp = new ImagePlus();
 			Frame frame = null;
 			try {
-				frame = grabber.grabFrame(false, true, true, false);
+				frame = grabber.grabImage();
 				trueStartTime = grabber.getTimestamp();
 				currentFrame=0;
 			} catch (Exception e2) {
 				
 				e2.printStackTrace();
 			}
-			if (frame!=null) {
+			if (frame!=null && frame.image != null) {
 				ImageProcessor ip = new ColorProcessor(converter.convert(frame));
 				previewImp.setProcessor("preview frame 0, timestamp: "+grabber.getTimestamp(),ip);
 				previewImp.show();
 				
+			}
+			else 
+			{
+				ImageProcessor ip = new ColorProcessor(getWidth(), getHeight());
+				label(ip,"No frame decoded: # "+currentFrame,Color.white);
 			}
 			
 			
@@ -240,11 +299,20 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 
 			gd.addMessage("File name: "+fileName
 							+"\nFormat = "+grabber.getFormat()
-							+"\nDuration = "+(grabber.getLengthInTime()/1000000.0)+" s"
-							+"\nFrame rate = "+grabber.getFrameRate()
-							+"\nTotal frames : "+nTotalFrames
-							+"\nWidth x Height = "+grabber.getImageWidth() +" x "+grabber.getImageHeight());
-
+							+"\nWidth x Height = "+grabber.getImageWidth() +" x "+grabber.getImageHeight()
+							+"\nDuration = "+(grabber.getLengthInTime()/(AV_TIME_BASE*1.0))+" s"
+							+"\nVideo duration = "+video_stream_duration+" s"
+							+"\nAverage frame rate = "+grabber.getFrameRate()
+							+"\nEstimated frames = "+nb_frames_estimated
+							+"\nFrames in video stream = "+nb_frames_in_video);
+			Panel TotFramesPan = new Panel();
+			gd.addPanel(TotFramesPan);
+			final Label TotFramesLbl = new Label("Total frames to import: "+nTotalFrames);
+			TotFramesPan.add(TotFramesLbl); 
+			final Checkbox TotFramesOption = new Checkbox("Prefer number of frames in video stream", nTotalFrames==nb_frames_in_video);
+			TotFramesOption.setEnabled(nb_frames_in_video>0);
+			
+			TotFramesPan.add(TotFramesOption);
 			Panel previewPanel = new Panel();
 			gd.addPanel(previewPanel);
 			
@@ -276,11 +344,20 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						if (frameNum>=nTotalFrames) frameNum = nTotalFrames - 1;
 						if (frameNum != frameSlider.getValue())	frameSlider.setValue(frameNum);
 						try {
-							grabber.setTimestamp(Math.round(1000000L * frameNum / frameRate) + trueStartTime);//setFrameNumber(frameNum);
-							Frame frame = grabber.grabFrame(false, true, true, false);
+							grabber.setTimestamp(Math.round((long)AV_TIME_BASE * frameNum / frameRate) + trueStartTime);//setFrameNumber(frameNum);
+							Frame frame = grabber.grabImage();
 							currentFrame=frameNum;
-							if (frame==null) IJ.log("Null frame at "+frameNum);//+" ("+getFrameNumberRounded(grabber.getTimestamp())+")");
-							ImageProcessor ip = new ColorProcessor(converter.convert(frame));
+							ImageProcessor ip;
+							if (frame!=null && frame.image != null)
+							{					
+								ip = new ColorProcessor(converter.convert(frame));
+							} 
+							else 
+							{
+								ip = new ColorProcessor(getWidth(), getHeight());
+								label(ip,"No frame decoded: # "+frameNum,Color.white);
+								IJ.log("Null frame at "+frameNum);//+" ("+getFrameNumberRounded(grabber.getTimestamp())+")");
+							}
 							if (previewImp == null) previewImp = new ImagePlus();
 							if (!previewImp.isVisible()) previewImp.show();
 							previewImp.setProcessor("preview frame "+frameNum+ ", timestamp: "+grabber.getTimestamp(), ip);
@@ -308,6 +385,30 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				
 			});
 			previewPanel.add(frameSlider);
+			
+			TotFramesOption.addItemListener(new ItemListener()
+			{
+
+				@Override
+				public void itemStateChanged(ItemEvent e) {
+					boolean preferStream = TotFramesOption.getState();
+					if (preferStream && nb_frames_in_video > 0) 
+					{
+						nTotalFrames = nb_frames_in_video;
+						IJ.log("Total frames set according to stream info: "+nTotalFrames);
+					}
+					else 
+					{
+						nTotalFrames = nb_frames_estimated;
+						IJ.log("Total frames set according to estimation: "+nTotalFrames);
+					}
+					TotFramesLbl.setText("Total frames to import: "+nTotalFrames);
+					frameSlider.setMaximum(nTotalFrames);
+				}
+				
+				
+			});
+			
 			gd.setSmartRecording(true);
 			gd.pack();
 			gd.showDialog();
@@ -430,7 +531,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		if(((n-1)*decimateBy+firstFrame!=currentFrame)) {
 			if ((n-1)*decimateBy+firstFrame==currentFrame+1 && n>1 && frame!=null) {
 				try {
-					resFrame = grabber.grabFrame(false,true,true,false);
+					resFrame = grabber.grabImage();
 					tst = grabber.getTimestamp();
 				} catch (Exception e) {
 					e.printStackTrace();
@@ -439,49 +540,22 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				try {
 					if ((n-1)*decimateBy+firstFrame==0) {
 						if (currentFrame>0) grabber.restart();
-						resFrame = grabber.grabFrame(false,true,true,false);
+						resFrame = grabber.grabImage();
 						tst = grabber.getTimestamp();
 					} else if ((n-1)*decimateBy+firstFrame>0) {
-						grabber.setTimestamp(Math.round(1000000L * ((n-1)*decimateBy+firstFrame) / frameRate) + trueStartTime);//setFrameNumber((n-1)*decimateBy+firstFrame);
-						resFrame = grabber.grabFrame(false,true,true,false);
+						grabber.setTimestamp(Math.round((long)AV_TIME_BASE * ((n-1)*decimateBy+firstFrame) / frameRate) + trueStartTime);
+						resFrame = grabber.grabImage();
 						tst = grabber.getTimestamp();
-
-						//probably not necessary method of frame retrieving with rewind to previous positions 
-						
-//						int rewind = 0;
-//						//boolean wasnull=false;
-//						while(resFrame==null && rewind<frameRate) {
-//							//IJ.log("Rewinding "+rewind+" frame to decode...");
-//							grabber.setFrameNumber(n+firstFrame-1-rewind);
-//							for (int i=0; i<rewind; i++) {
-//								resFrame = grabber.grabFrame(false,true,false,false);
-//								//IJ.log("rewind = "+i+" of "+rewind);
-//								if (resFrame==null) IJ.log("Null frame while rewinding frame # "+(n+firstFrame-rewind+i));
-//							}
-//							resFrame = grabber.grabFrame(false,true,true,false);
-//							tst = grabber.getTimestamp();
-////							if (resFrame==null){
-////								IJ.log("Null frame # "+(n+firstFrame -1)+ " after rewind = "+rewind);
-////								wasnull=true;
-////							} else if (wasnull){
-////								IJ.log("Frame # "+(n+firstFrame-1)+ " decoded after rewind = "+rewind);
-////							}
-//							if (rewind==n+firstFrame-1) break;
-//							rewind+=rewind<10?1:10;
-//							if (rewind>n+firstFrame-1) rewind=n+firstFrame-1;
-//						}
-						
-						
 					}
 				} catch (Exception e) {
 					e.printStackTrace();
 				}
 			}
 			currentFrame = (n-1)*decimateBy+firstFrame;
-			labels[n-1] = String.format(Locale.US, "%8.6f s", tst/1000000.0);
+			labels[n-1] = String.format(Locale.US, "%8.6f s", tst/(double)AV_TIME_BASE);
 			framesTimeStamps[n-1] = tst;
 			frame=resFrame;
-			if (resFrame!=null) {
+			if (resFrame!=null && resFrame.image != null) {
 				ip = new ColorProcessor(converter.convert(frame));
 				if (convertToGray)
 					ip = ip.convertToByte(false);
@@ -489,7 +563,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 					ip.flipVertical();
 			} else {
 				ip = new ColorProcessor(getWidth(), getHeight());
-				label(ip,"No frame decoded: # "+currentFrame+" at "+(tst/1000000.0),Color.white);
+				label(ip,"No frame decoded: # "+currentFrame+" at "+(tst/(double)AV_TIME_BASE),Color.white);
 			}
 
 		}
@@ -500,109 +574,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	}
 	
 	
-	
-	//Incorrect code inspired by some incorrect XviD test videofiles
-	//made with packed bitstream option
-	
-//	/** Returns an ImageProcessor for the specified slice,
-//	were 1<=n<=nslices. Returns null if the stack is empty.
-//	 */
-//	public ImageProcessor getProcessor(int n) {
-//		if (grabber==null || n>getSize() || n<1) {
-//			//return null;
-//			throw new IllegalArgumentException("Slice is out of range "+n);
-//		}
-//		//ImageProcessor ip = null;
-//		Frame resFrame=null;
-//		long tst=0;
-//		
-//
-//		if((n+firstFrame!=currentFrame+1)) {
-//			if (n+firstFrame==currentFrame+2 && n>1 && frame!=null) {
-//				//tst = n==1?firstTimeStamp:grabber.getTimestamp();
-//				tst = grabber.getTimestamp();
-//				try {
-//					resFrame = grabber.grabFrame(false,true,true,false);
-//				} catch (Exception e) {
-//					e.printStackTrace();
-//				}
-//			} else {
-//				int rewind = (n+firstFrame)==1?0:1;
-////				boolean keyfound=false;
-////				int keyframenum=-1;
-//				boolean wasnull=false;
-//				try {
-//					while(resFrame==null && rewind<10*frameRate) {// && n+firstFrame>rewind && !keyfound) {// && rewind<10) {
-//						IJ.showStatus("Rewinding "+rewind+" frame to decode...");
-//						grabber.setFrameNumber(n+firstFrame-rewind);
-//						for (int i=0; i<rewind; i++) {
-//							resFrame = grabber.grabFrame(false,true,false,false);
-////							keyfound = (resFrame!=null && resFrame.keyFrame);
-////							if (keyfound) {
-////								keyframenum= n+firstFrame-rewind +i;
-////								IJ.log("keyframe while rewinding at frame = "+keyframenum);
-////							}
-//							IJ.showProgress(i, rewind);
-//							if (resFrame==null) IJ.log("Null frame while rewinding frame # "+(n+firstFrame-rewind+i));
-//						}
-//						tst = (n+firstFrame)==1?0:grabber.getTimestamp();
-//						resFrame = grabber.grabFrame(false,true,true,false);
-//						if (resFrame==null){
-//							IJ.log("Null frame # "+(n+firstFrame -1)+ " after rewind = "+rewind);
-//							wasnull=true;
-//						} else if (wasnull){
-//							IJ.log("Frame # "+(n+firstFrame-1)+ " decoded after rewind = "+rewind);
-//						}
-////						keyfound = (resFrame!=null && resFrame.keyFrame);
-////						if (keyfound) {
-////							keyframenum= n+firstFrame;
-////							IJ.log("keyframe at frame = "+keyframenum);
-////						}
-//
-//						//if (rewind==n+firstFrame-1 || keyfound) break;
-//						if (rewind==n+firstFrame-1) break;
-////						if (keyfound) {
-////							IJ.showStatus("keyframe at frame = "+keyframenum);
-////							break;
-////						}
-//						rewind+=rewind<11?1:10;
-//						if (rewind>n+firstFrame-1) rewind=n+firstFrame-1;
-//					}
-//				} catch (Exception e) {
-//					e.printStackTrace();
-//				}
-//			}
-//			//			if (resFrame==null) {
-//			//				throw new NullPointerException("No frame decoded "+n);
-//			//			}
-//
-//			currentFrame = n+firstFrame-1;
-//			labels[n-1] = String.format(Locale.US, "%8.6f s", tst/1000000.0);
-//			framesTimeStamps[n-1] = tst;
-//			frame=resFrame;
-//			if (resFrame!=null) {
-//
-//
-//				ip = new ColorProcessor(converter.convert(frame));
-//				if (convertToGray)
-//					ip = ip.convertToByte(false);
-//				if (flipVertical)
-//					ip.flipVertical();
-//			} else {
-//				ip = new ColorProcessor(getWidth(), getHeight());
-//				label(ip,"No frame decoded: # "+currentFrame+" at "+(tst/1000000.0),Color.white);
-//			}
-//
-//		}
-//		if (ip==null) {
-//			throw new NullPointerException("No ImageProcessor created after last grab of frame "+(n+firstFrame));
-//		}
-//		return ip;
-//	}
-//	
-	
-
-
 	@Override
 	public void close() throws java.lang.Exception {
 		if (grabber!=null){
@@ -622,7 +593,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 
 	
 	public int getFrameNumberRounded(long timestamp) {
-		return (int) Math.round(timestamp*getFrameRate()/1000000.0);
+		return (int) Math.round(timestamp*getFrameRate()/(double)AV_TIME_BASE);
 	}
 
 }
