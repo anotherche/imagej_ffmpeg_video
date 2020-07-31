@@ -1,30 +1,27 @@
 package ffmpeg_video_import;
 
-//uncomment this if javacv version < 1.5 
-//import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
-//uncomment this if javacv version >= 1.5 
-import static org.bytedeco.ffmpeg.global.avutil.*;
-
 import java.awt.*;
 import java.awt.event.*;
 import java.io.File;
 import java.util.Locale;
+
+
 import javax.swing.JSlider;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
+
+//uncomment this if javacv version < 1.5 
+//import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
+//uncomment this if javacv version >= 1.5 
+import static org.bytedeco.ffmpeg.global.avutil.*;
 import org.bytedeco.ffmpeg.avformat.AVFormatContext;
 import org.bytedeco.ffmpeg.avformat.AVStream;
 import org.bytedeco.ffmpeg.avutil.AVRational;
 import org.bytedeco.javacv.FFmpegFrameGrabber;
 import org.bytedeco.javacv.Frame;
 import org.bytedeco.javacv.FrameGrabber.Exception;
-
-
-
-
 import org.bytedeco.javacv.Java2DFrameConverter;
-
 import ij.IJ;
 import ij.ImagePlus;
 import ij.ImageStack;
@@ -36,6 +33,7 @@ import ij.io.OpenDialog;
 import ij.plugin.PlugIn;
 import ij.process.ColorProcessor;
 import ij.process.ImageProcessor;
+import javacv_install.Install_JavaCV;
 
 
 
@@ -60,51 +58,56 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	private String[] labels;
 	private long[] framesTimeStamps;
 	private double frameRate;
-	private	boolean displayDialog = true;
 	private	boolean importInitiated = false;
+	private long 	trueStartTime = 0L;
+	
 	//static versions of dialog parameters that will be remembered
 	private static boolean	   staticConvertToGray;
 	private static boolean	   staticFlipVertical;
+	
 	//dialog parameters
 	private boolean			   	convertToGray;		//whether to convert color video to grayscale
 	private boolean			   	flipVertical;		//whether to flip image vertical
 	private int 				firstFrame;
 	private int 				lastFrame;
-	private int 				decimateBy = 1;
-	private long 				startTime = 0L;
-	private long 				trueStartTime = 0L;
-		
+	private int 				decimateBy = 1;		//import every nth frame
+	private boolean 			preferStream; 		//prefer number of frames specified in video stream info
+	
+	
+	
+	
+	@Override	
 	public void run(String arg) {
-//		String options = IJ.isMacro()?Macro.getOptions():null;
-//		if (options!=null && options.contains("select=") && !options.contains("open="))
-//			Macro.setOptions(options.replaceAll("select=", "open="));
-		if (arg!=null && !arg.isEmpty()) {
-			if (arg.contains("importquiet=true")) displayDialog=false;
-		}
 		
 
 		
-		OpenDialog	od = new OpenDialog("Open Video File", arg);
+		if (!Install_JavaCV.CheckJavaCV(false)) return;
+		// if (Install_JavaCV.restartRequired) return;
+		// if (!CheckDepsLoad()){
+			// IJ.showMessage("JavaCV dependencies seem to be corrupted. Trying force reinstall..");
+			// if (!Install_JavaCV.CheckJavaCV(true)) return;
+		// }
+	
+		
+		OpenDialog	od = new OpenDialog("Open Video File");
 		String fileName = od.getFileName();
 		if (fileName == null) return;
 		String fileDir = od.getDirectory();
 		String path = fileDir + fileName;
 		ImageStack stack = null;
-		if (displayDialog) {
-			if (showDialog(path)) {
-				stack = makeStack(firstFrame, lastFrame, decimateBy, convertToGray, flipVertical);
-			} else {
-				if (importInitiated) {
-					try {
-						close();
-					} catch (java.lang.Exception e) {
-						
-						e.printStackTrace();
-					}
+		if (showDialog(path)) {
+			stack = makeStack(firstFrame, lastFrame, decimateBy, convertToGray, flipVertical);
+		} else {
+			if (importInitiated) {
+				try {
+					close();
+				} catch (java.lang.Exception e) {
+					
+					e.printStackTrace();
 				}
-				return;
 			}
-		} else stack = makeStack(path, firstFrame, lastFrame, decimateBy, convertToGray, flipVertical);
+			return;
+		}
 		if (stack==null || stack.getSize() == 0 || stack.getProcessor(1)==null) {
 			return;
 		}
@@ -123,20 +126,66 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		}
 	}
 	
-
 	
+	// private boolean CheckDepsLoad() {
+		// boolean success = true;
+		// try {
+			// Class.forName("org.bytedeco.javacpp.Loader");
+			// Loader.load(org.bytedeco.ffmpeg.global.avutil.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.swresample.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.avcodec.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.avformat.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.swscale.class);
+          
+            ////Register all formats and codecs
+            // av_jni_set_java_vm(Loader.getJavaVM(), null);
+            // avcodec_register_all();
+            // av_register_all();
+            // avformat_network_init(); 
 
+            // Loader.load(org.bytedeco.ffmpeg.global.avdevice.class);
+            // avdevice_register_all();
+           
+           
+               
+        // } catch (Throwable t) {
+			// t.printStackTrace();
+			// success = false;
+       // }
+	   // return success;
+	// }			
 	
-	public ImageStack makeStack (String videoFilePath, int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
-		if (InitImport(videoFilePath)) {
+	
+	public ImageStack makeStack (String videoPath, int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
+		if (InitImport(videoPath)) {
 			return makeStack (first, last, decimateBy, convertToGray, flipVertical);
 		}
 		return null;
 	}
 			
-		
+	private ImageStack makeStack (int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
+		if (!importInitiated) return null;
+		if (decimateBy<1) throw new IllegalArgumentException("Incorrect decimation");
+		firstFrame = first<0?nTotalFrames+first:first;
+		if (firstFrame<0) firstFrame=0;
+		if (firstFrame>nTotalFrames-1 ) {
+			firstFrame=0;
+			throw new IllegalArgumentException("First frame is out of range 0:"+(nTotalFrames-1));
+		}
+		lastFrame = last<0?nTotalFrames+last:last;
+		if (lastFrame<firstFrame) lastFrame=firstFrame;
+		if (lastFrame>nTotalFrames-1) lastFrame=nTotalFrames-1;
+		this.decimateBy = decimateBy;
+		this.convertToGray = convertToGray;
+		this.flipVertical = flipVertical;
+		labels = new String[getSize()];
+		framesTimeStamps = new long[getSize()];
+		currentFrame = firstFrame-1;
+		stack = this;
+		return stack;
+	}	
 	
-	boolean InitImport(String path) {
+	private boolean InitImport(String path) {
 		if (importInitiated) {
 			try {
 				grabber.close();
@@ -153,7 +202,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		frameHeight = 0;
 		nTotalFrames = 0;
 		videoFilePath = "";
-		startTime = 0L;
 		trueStartTime = 0L;
 		if ((new File(path)).isFile()){
 			
@@ -199,11 +247,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				}
 				
 				videoFilePath = path;
-				startTime = grabber.getFormatContext().start_time();
-				if (startTime ==  AV_NOPTS_VALUE) startTime = 0;
-				//startTime = 0;
-//				LogStream.redirectSystem();
-//				av_dump_format(grabber.getFormatContext(), 0, path, 0);
 				importInitiated = true;
 				return importInitiated;
 			}
@@ -211,27 +254,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		return importInitiated;
 	}
 
-	ImageStack makeStack (int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
-		if (!importInitiated) return null;
-		if (decimateBy<1) throw new IllegalArgumentException("Incorrect decimation");
-		firstFrame = first<0?nTotalFrames+first:first;
-		if (firstFrame<0) firstFrame=0;
-		if (firstFrame>nTotalFrames-1 ) {
-			firstFrame=0;
-			throw new IllegalArgumentException("First frame is out of range 0:"+(nTotalFrames-1));
-		}
-		lastFrame = last<0?nTotalFrames+last:last;
-		if (lastFrame<firstFrame) lastFrame=firstFrame;
-		if (lastFrame>nTotalFrames-1) lastFrame=nTotalFrames-1;
-		this.decimateBy = decimateBy;
-		this.convertToGray = convertToGray;
-		this.flipVertical = flipVertical;
-		labels = new String[getSize()];
-		framesTimeStamps = new long[getSize()];
-		currentFrame = firstFrame-1;
-		stack = this;
-		return stack;
-	}
+	
 	
 	/** Parameters dialog, returns false on cancel */
 	private boolean showDialog (String path) {
@@ -255,21 +278,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			IJ.log("Avarage frame rate = "+grabber.getFrameRate());
 			IJ.log("Width = "+grabber.getImageWidth());
 			IJ.log("Height = "+grabber.getImageHeight());
-			//IJ.log("Start time = "+grabber.getFormatContext().start_time());
-			
-			//// additional metadata info 
-//			IJ.log("--------------");
-//			IJ.log("File Metadata:");
-//			Map<String,String> md = grabber.getMetadata();
-//			for (Map.Entry<String,String> entry : md.entrySet())
-//				IJ.log(entry.getKey()+": "+entry.getValue());
-//			
-//			IJ.log("--------------");
-//			IJ.log("Video Metadata:");
-//				Map<String,String> vmd = grabber.getVideoMetadata();
-//				for (Map.Entry<String,String> entry : vmd.entrySet())
-//					IJ.log(entry.getKey()+": "+entry.getValue());
-				
 		
 			previewImp = new ImagePlus();
 			Frame frame = null;
@@ -309,7 +317,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			gd.addPanel(TotFramesPan);
 			final Label TotFramesLbl = new Label("Total frames to import: "+nTotalFrames);
 			TotFramesPan.add(TotFramesLbl); 
-			final Checkbox TotFramesOption = new Checkbox("Prefer number of frames in video stream", nTotalFrames==nb_frames_in_video);
+			final Checkbox TotFramesOption = new Checkbox("Prefer number of frames specified in video stream", nTotalFrames==nb_frames_in_video);
 			TotFramesOption.setEnabled(nb_frames_in_video>0);
 			
 			TotFramesPan.add(TotFramesOption);
@@ -391,7 +399,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 
 				@Override
 				public void itemStateChanged(ItemEvent e) {
-					boolean preferStream = TotFramesOption.getState();
+					preferStream = TotFramesOption.getState();
 					if (preferStream && nb_frames_in_video > 0) 
 					{
 						nTotalFrames = nb_frames_in_video;
@@ -440,72 +448,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		
 	}
 	
-	public void displayDialog(boolean displayDialog) {
-		this.displayDialog = displayDialog;
-	}
 	
-	/** Returns the ImagePlus opened by run(). */
-	public ImagePlus getImagePlus() {
-		return imp;
-	}
-	
-	/** Returns the number of slices in this stack. */
-	public int getSize() {
-		int range = lastFrame==-1?nTotalFrames-firstFrame-1:lastFrame-firstFrame; 
-		return range/decimateBy +1;
-	}
-	
-	/** Returns total number of frames in the video file. */
-	public int getTotalSize() {
-		return nTotalFrames;
-	}
-
-	/** Returns the path to the source video file */
-	public String getVideoFilePath() {
-		return videoFilePath;
-	}
-
-	/** Returns the label of the Nth image. */
-	public String getSliceLabel(int n) {
-		return labels[n-1];
-	}
-	
-	/** Returns the image width of the virtual stack */
-	public int getWidth() {
-		return frameWidth;
-	}
-
-	/** Returns the image height of the virtual stack */
-	public int getHeight() {
-		return frameHeight;
-	}
-
-
-
-	/** Returns the path to the directory containing the images. */
-	public String getDirectory() {
-		return fileDirectory;
-	}
-
-	/** Returns the file name of the specified slice, were 1<=n<=nslices. */
-	public String getFileName(int n) {
-		return fileName;
-	}
-
-	/** Deletes the last slice in the stack. */
-	public void deleteLastSlice() {
-
-	}
-
-	/** Adds an image to the end of the stack. */
-	public void addSlice(String name) {
-
-	}
-
-	/** Deletes the specified slice, were 1<=n<=nslices. */
-	public void deleteSlice(int n) {
-
-	}
 	
 	
 	private void label(ImageProcessor ip, String msg, Color color) {
@@ -595,5 +538,69 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	public int getFrameNumberRounded(long timestamp) {
 		return (int) Math.round(timestamp*getFrameRate()/(double)AV_TIME_BASE);
 	}
+	
+	/** Returns the ImagePlus opened by run(). */
+	public ImagePlus getImagePlus() {
+		return imp;
+	}
+	
+	/** Returns the number of slices in this stack. */
+	public int getSize() {
+		int range = lastFrame==-1?nTotalFrames-firstFrame-1:lastFrame-firstFrame; 
+		return range/decimateBy +1;
+	}
+	
+	/** Returns total number of frames in the video file. */
+	public int getTotalSize() {
+		return nTotalFrames;
+	}
 
+	/** Returns the path to the source video file */
+	public String getVideoFilePath() {
+		return videoFilePath;
+	}
+
+	/** Returns the label of the Nth image. */
+	public String getSliceLabel(int n) {
+		return labels[n-1];
+	}
+	
+	/** Returns the image width of the virtual stack */
+	public int getWidth() {
+		return frameWidth;
+	}
+
+	/** Returns the image height of the virtual stack */
+	public int getHeight() {
+		return frameHeight;
+	}
+
+
+
+	/** Returns the path to the directory containing the images. */
+	public String getDirectory() {
+		return fileDirectory;
+	}
+
+	/** Returns the file name of the specified slice, were 1<=n<=nslices. */
+	public String getFileName(int n) {
+		return fileName;
+	}
+
+	/** Deletes the last slice in the stack. */
+	public void deleteLastSlice() {
+
+	}
+
+	/** Adds an image to the end of the stack. */
+	public void addSlice(String name) {
+
+	}
+
+	/** Deletes the specified slice, were 1<=n<=nslices. */
+	public void deleteSlice(int n) {
+
+	}
+
+	
 }

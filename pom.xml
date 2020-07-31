@@ -14,7 +14,7 @@
 
 	<groupId>anotherche.plugins.imagej</groupId> 
     <artifactId>FFmpeg_FrameReader</artifactId>
-    <version>0.2.0</version>
+    <version>0.3.0</version>
 	
 	<name>FFmpeg_FrameReader.jar</name>
 	<description>Opens video files supported by FFmpeg as virtual stack of frame sequence. ImageJ plugin.</description>
@@ -269,6 +269,14 @@
   		<exclusion>
   			<groupId>org.bytedeco</groupId>
   			<artifactId>libfreenect2-platform</artifactId>
+  		</exclusion>
+  		<exclusion>
+  			<groupId>org.bytedeco</groupId>
+  			<artifactId>opencv-platform</artifactId>
+  		</exclusion>
+  		<exclusion>
+  			<groupId>org.bytedeco</groupId>
+  			<artifactId>opencv</artifactId>
   		</exclusion>
   	</exclusions>
   	<version>1.5.3</version>
