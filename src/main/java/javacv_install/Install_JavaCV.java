@@ -16,8 +16,10 @@ import java.net.URLConnection;
 
 
 
+
+
+
 public class Install_JavaCV implements PlugIn {
-	
 	
 	
 	//Installation parameters
@@ -54,19 +56,26 @@ public class Install_JavaCV implements PlugIn {
 		}
 			
 		else
-			IJ.log("javacv install failed");
+			IJ.log("javacv install failed or canceled");
 			
 	}
 
 	@Override
-	public void run(String args) {
+	public void run(String arg) {
+		IJ.log("FFmpegFrameGrabber test");
+		
 		if(CheckJavaCV(true)) {
 			IJ.log("javacv is installed");
 		}
 		else
-			IJ.log("javacv install failed");
+			IJ.log("javacv install failed or canceled");
+		
 			
 	}
+	
+	
+	
+			
 	
 	
 	static class Dependency {
@@ -265,8 +274,8 @@ public class Install_JavaCV implements PlugIn {
 			if (forceReinstall || !dep.isInstalled()) {
 				if (!forceReinstall && !installConfirmed 
 					&& !(installConfirmed = IJ.showMessageWithCancel(
-											"JavaCV seems not to be installed",
-											"JavaCV seems not to be installed\n" +
+											"JavaCV dependency check",
+											"Not all required dependencies are installed.\n" +
 											"Auto-install?"))) return false;
 				
 				try {
@@ -285,6 +294,7 @@ public class Install_JavaCV implements PlugIn {
 			
 		if (installConfirmed || forceReinstall) {
 			IJ.showMessage("Please restart ImageJ now");
+			IJ.log("ImageJ restart is required after javacv installation!");
 			restartRequired = true;
 		} else restartRequired = false;
 		return installed;	
@@ -309,4 +319,8 @@ public class Install_JavaCV implements PlugIn {
 		}
 		return buf.toByteArray();
 	}
+	
+	
+	
 }
+

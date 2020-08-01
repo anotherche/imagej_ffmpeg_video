@@ -1,28 +1,19 @@
 package ffmpeg_video_import;
 
-import java.awt.*;
-import java.awt.event.*;
 import java.io.File;
 import java.util.Locale;
-
+import java.awt.*;
+import java.awt.event.*;
 
 import javax.swing.JSlider;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
 
-//uncomment this if javacv version < 1.5 
-//import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
-//uncomment this if javacv version >= 1.5 
-import static org.bytedeco.ffmpeg.global.avutil.*;
-import org.bytedeco.ffmpeg.avformat.AVFormatContext;
-import org.bytedeco.ffmpeg.avformat.AVStream;
-import org.bytedeco.ffmpeg.avutil.AVRational;
-import org.bytedeco.javacv.FFmpegFrameGrabber;
-import org.bytedeco.javacv.Frame;
-import org.bytedeco.javacv.FrameGrabber.Exception;
-import org.bytedeco.javacv.Java2DFrameConverter;
+import javacv_install.Install_JavaCV;
+
 import ij.IJ;
+import ij.plugin.PlugIn;
 import ij.ImagePlus;
 import ij.ImageStack;
 import ij.VirtualStack;
@@ -30,14 +21,27 @@ import ij.WindowManager;
 import ij.gui.NonBlockingGenericDialog;
 import ij.io.FileInfo;
 import ij.io.OpenDialog;
-import ij.plugin.PlugIn;
 import ij.process.ColorProcessor;
 import ij.process.ImageProcessor;
-import javacv_install.Install_JavaCV;
+
+
+
+import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.Java2DFrameConverter;
+import org.bytedeco.javacv.Frame;
+//uncomment this if javacv version < 1.5 
+//import static org.bytedeco.javacpp.avutil.AV_NOPTS_VALUE;
+//uncomment this if javacv version >= 1.5
+import static org.bytedeco.ffmpeg.global.avutil.*;
+import org.bytedeco.ffmpeg.avformat.AVFormatContext;
+import org.bytedeco.ffmpeg.avformat.AVStream;
+import org.bytedeco.ffmpeg.avutil.AVRational;
+
 
 
 
 public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, PlugIn {
+	
 	private String videoFilePath;
 	private String fileDirectory;
 	private String fileName;
@@ -61,6 +65,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	private	boolean importInitiated = false;
 	private long 	trueStartTime = 0L;
 	
+	
 	//static versions of dialog parameters that will be remembered
 	private static boolean	   staticConvertToGray;
 	private static boolean	   staticFlipVertical;
@@ -75,19 +80,20 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	
 	
 	
-	
-	@Override	
-	public void run(String arg) {
-		
-
-		
-		if (!Install_JavaCV.CheckJavaCV(false)) return;
-		// if (Install_JavaCV.restartRequired) return;
-		// if (!CheckDepsLoad()){
-			// IJ.showMessage("JavaCV dependencies seem to be corrupted. Trying force reinstall..");
-			// if (!Install_JavaCV.CheckJavaCV(true)) return;
+	// public static void main(String[] args) {
+		// if(CheckJavaCV(true)){
+			// IJ.log("javacv is installed");
 		// }
-	
+			
+		// else
+			// IJ.log("javacv install failed");
+			
+	// }
+
+	@Override
+	public void run(String arg) {
+					
+		if (!Install_JavaCV.CheckJavaCV(false) || Install_JavaCV.restartRequired) return;
 		
 		OpenDialog	od = new OpenDialog("Open Video File");
 		String fileName = od.getFileName();
@@ -124,76 +130,16 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		if (arg.equals("")) {
 			imp.show();
 		}
-	}
-	
-	
-	// private boolean CheckDepsLoad() {
-		// boolean success = true;
-		// try {
-			// Class.forName("org.bytedeco.javacpp.Loader");
-			// Loader.load(org.bytedeco.ffmpeg.global.avutil.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.swresample.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.avcodec.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.avformat.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.swscale.class);
-          
-            ////Register all formats and codecs
-            // av_jni_set_java_vm(Loader.getJavaVM(), null);
-            // avcodec_register_all();
-            // av_register_all();
-            // avformat_network_init(); 
-
-            // Loader.load(org.bytedeco.ffmpeg.global.avdevice.class);
-            // avdevice_register_all();
-           
-           
-               
-        // } catch (Throwable t) {
-			// t.printStackTrace();
-			// success = false;
-       // }
-	   // return success;
-	// }			
-	
-	
-	public ImageStack makeStack (String videoPath, int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
-		if (InitImport(videoPath)) {
-			return makeStack (first, last, decimateBy, convertToGray, flipVertical);
-		}
-		return null;
-	}
 			
-	private ImageStack makeStack (int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
-		if (!importInitiated) return null;
-		if (decimateBy<1) throw new IllegalArgumentException("Incorrect decimation");
-		firstFrame = first<0?nTotalFrames+first:first;
-		if (firstFrame<0) firstFrame=0;
-		if (firstFrame>nTotalFrames-1 ) {
-			firstFrame=0;
-			throw new IllegalArgumentException("First frame is out of range 0:"+(nTotalFrames-1));
-		}
-		lastFrame = last<0?nTotalFrames+last:last;
-		if (lastFrame<firstFrame) lastFrame=firstFrame;
-		if (lastFrame>nTotalFrames-1) lastFrame=nTotalFrames-1;
-		this.decimateBy = decimateBy;
-		this.convertToGray = convertToGray;
-		this.flipVertical = flipVertical;
-		labels = new String[getSize()];
-		framesTimeStamps = new long[getSize()];
-		currentFrame = firstFrame-1;
-		stack = this;
-		return stack;
-	}	
+	}
+	
+	
+	
+			
+	
 	
 	private boolean InitImport(String path) {
-		if (importInitiated) {
-			try {
-				grabber.close();
-			} catch (Exception e) {
-				e.printStackTrace();
-			}
-			
-		}
+		
 		importInitiated = false;
 		fileDirectory = "";
 		fileName = "";
@@ -228,7 +174,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 					AVStream avstr = avctx.streams(istr);
 					if (AVMEDIA_TYPE_VIDEO == avstr.codecpar().codec_type())
 					{
-						nb_frames_in_video = (int) avstr.nb_frames();
+						int nb_frames_in_video = (int) avstr.nb_frames();
 						
 						if (nb_frames_in_video!=0 
 							&& (nb_frames_in_video*1.0)/nb_frames_estimated<1.1
@@ -237,7 +183,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						else nTotalFrames = nb_frames_estimated;
 						
 						AVRational video_stream_tb = avstr.time_base();
-						video_stream_duration = Double.NaN;
+						double video_stream_duration = Double.NaN;
 						if(video_stream_tb.den()!=0)
 							video_stream_duration = avstr.duration()*video_stream_tb.num()/(double)video_stream_tb.den();
 						if (video_stream_duration<=0) video_stream_duration=Double.NaN;
@@ -253,10 +199,74 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		}
 		return importInitiated;
 	}
+	
+	@Override
+	public void close() throws java.lang.Exception {
+		if (grabber!=null){
+			
+			grabber.close();
+		}
+		
+	}
+	
+	// private boolean CheckDepsLoad() {
+		// boolean success = true;
+		// try {
+			// Class.forName("org.bytedeco.javacpp.Loader");
+			// Loader.load(org.bytedeco.ffmpeg.global.avutil.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.swresample.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.avcodec.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.avformat.class);
+            // Loader.load(org.bytedeco.ffmpeg.global.swscale.class);
+          
+            // Register all formats and codecs
+            // av_jni_set_java_vm(Loader.getJavaVM(), null);
+            // avcodec_register_all();
+            // av_register_all();
+            // avformat_network_init(); 
 
+            // Loader.load(org.bytedeco.ffmpeg.global.avdevice.class);
+            // avdevice_register_all();
+           
+           
+               
+        // } catch (Throwable t) {
+			// t.printStackTrace();
+			// success = false;
+       // }
+	   // return success;
+	// }	
+	
+	public ImageStack makeStack (String videoPath, int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
+		if (InitImport(videoPath)) {
+			return makeStack (first, last, decimateBy, convertToGray, flipVertical);
+		}
+		return null;
+	}
+			
+	private ImageStack makeStack (int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
+		if (!importInitiated) return null;
+		if (decimateBy<1) throw new IllegalArgumentException("Incorrect decimation");
+		firstFrame = first<0?nTotalFrames+first:first;
+		if (firstFrame<0) firstFrame=0;
+		if (firstFrame>nTotalFrames-1 ) {
+			firstFrame=0;
+			throw new IllegalArgumentException("First frame is out of range 0:"+(nTotalFrames-1));
+		}
+		lastFrame = last<0?nTotalFrames+last:last;
+		if (lastFrame<firstFrame) lastFrame=firstFrame;
+		if (lastFrame>nTotalFrames-1) lastFrame=nTotalFrames-1;
+		this.decimateBy = decimateBy;
+		this.convertToGray = convertToGray;
+		this.flipVertical = flipVertical;
+		labels = new String[getSize()];
+		framesTimeStamps = new long[getSize()];
+		currentFrame = firstFrame-1;
+		stack = this;
+		return stack;
+	}	
 	
 	
-	/** Parameters dialog, returns false on cancel */
 	private boolean showDialog (String path) {
 		
 		if (!IJ.isMacro()) {
@@ -517,15 +527,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	}
 	
 	
-	@Override
-	public void close() throws java.lang.Exception {
-		if (grabber!=null){
-			
-			grabber.close();
-		}
-		
-	}
-	
 	public double getFrameRate() {
 		return frameRate;
 	}
@@ -601,6 +602,6 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	public void deleteSlice(int n) {
 
 	}
-
 	
 }
+
