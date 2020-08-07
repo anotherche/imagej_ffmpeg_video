@@ -1,5 +1,7 @@
 package ffmpeg_video_import;
 
+import javacv_install.Install_JavaCV;
+
 import java.io.File;
 import java.util.Locale;
 import java.awt.*;
@@ -9,10 +11,8 @@ import javax.swing.JSlider;
 import javax.swing.event.ChangeEvent;
 import javax.swing.event.ChangeListener;
 
-
-import javacv_install.Install_JavaCV;
-
 import ij.IJ;
+import ij.plugin.HyperStackConverter;
 import ij.plugin.PlugIn;
 import ij.ImagePlus;
 import ij.ImageStack;
@@ -21,6 +21,7 @@ import ij.WindowManager;
 import ij.gui.NonBlockingGenericDialog;
 import ij.io.FileInfo;
 import ij.io.OpenDialog;
+import ij.process.ByteProcessor;
 import ij.process.ColorProcessor;
 import ij.process.ImageProcessor;
 
@@ -78,28 +79,24 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	private int 				decimateBy = 1;		//import every nth frame
 	private boolean 			preferStream; 		//prefer number of frames specified in video stream info
 	
-	
-	
-	// public static void main(String[] args) {
-		// if(CheckJavaCV(true)){
-			// IJ.log("javacv is installed");
-		// }
-			
-		// else
-			// IJ.log("javacv install failed");
-			
-	// }
-
+	//Hypestack parameters and constants
+	public static final int CZT=0, CTZ=1;
+    static final String[] orders = {"xyczt(default)", "xyctz"};
+    private boolean splitRGB = false;
+    private boolean convertToHS = false;
+    private int ordering = CZT;
+    private int nHSChannels = 1;
+    private int nHSSlices = 1;
+    private int nHSFrames = 1;
+    
 	@Override
 	public void run(String arg) {
 					
 		if (!Install_JavaCV.CheckJavaCV(false) || Install_JavaCV.restartRequired) return;
 		
 		OpenDialog	od = new OpenDialog("Open Video File");
-		String fileName = od.getFileName();
-		if (fileName == null) return;
-		String fileDir = od.getDirectory();
-		String path = fileDir + fileName;
+		String path = od.getPath();
+		if (path == null) return;
 		ImageStack stack = null;
 		if (showDialog(path)) {
 			stack = makeStack(firstFrame, lastFrame, decimateBy, convertToGray, flipVertical);
@@ -120,24 +117,28 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		imp = new ImagePlus(WindowManager.makeUniqueName(fileName), stack);
 		FileInfo fi = new FileInfo();
 		fi.fileName = fileName;
-		fi.directory = fileDir;
+		fi.directory = fileDirectory;
 		imp.setFileInfo(fi);
 		imp.setProperty("video_fps", frameRate);
 		imp.setProperty("stack_source_type", "ffmpeg_frame_grabber");
 		imp.setProperty("first_frame", firstFrame);
 		imp.setProperty("last_frame", lastFrame);
 		imp.setProperty("decimate_by", decimateBy);
+		if (convertToHS){
+			imp=HyperStackConverter.toHyperStack(imp, nHSChannels, nHSSlices, nHSFrames, convertToGray?"grayscale":"color");
+		}
 		if (arg.equals("")) {
 			imp.show();
 		}
-			
+		
 	}
 	
 	
 	
 			
 	
-	
+	/** Initializes FFmpegFrameGrabber that reads video frames 
+	 * from a video file specified by <code>path</code> into stack */
 	private boolean InitImport(String path) {
 		
 		importInitiated = false;
@@ -155,9 +156,16 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			if (grabber!=null) {
 				try {
 					grabber.start();
+					if(!grabber.hasVideo() || grabber.getLengthInFrames()<2){
+						IJ.log("Not a video or number of frames <2 ("+path+")");
+						IJ.log("Number of frames = "+grabber.getLengthInFrames());
+						close();
+						return false;
+					}
+						
 				} catch (Exception e) {
 					e.printStackTrace();
-					return importInitiated;
+					return false;
 				}
 
 				converter = new Java2DFrameConverter();
@@ -174,16 +182,19 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 					AVStream avstr = avctx.streams(istr);
 					if (AVMEDIA_TYPE_VIDEO == avstr.codecpar().codec_type())
 					{
-						int nb_frames_in_video = (int) avstr.nb_frames();
+						nb_frames_in_video = (int) avstr.nb_frames();
 						
 						if (nb_frames_in_video!=0 
 							&& (nb_frames_in_video*1.0)/nb_frames_estimated<1.1
 							&& (nb_frames_in_video*1.0)/nb_frames_estimated>0.9)
 							nTotalFrames = nb_frames_in_video;
-						else nTotalFrames = nb_frames_estimated;
+						else {
+							nTotalFrames = nb_frames_estimated;
+							nb_frames_in_video = 0;
+						}
 						
 						AVRational video_stream_tb = avstr.time_base();
-						double video_stream_duration = Double.NaN;
+						video_stream_duration = Double.NaN;
 						if(video_stream_tb.den()!=0)
 							video_stream_duration = avstr.duration()*video_stream_tb.num()/(double)video_stream_tb.den();
 						if (video_stream_duration<=0) video_stream_duration=Double.NaN;
@@ -194,10 +205,10 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				
 				videoFilePath = path;
 				importInitiated = true;
-				return importInitiated;
+				return true;
 			}
 		}
-		return importInitiated;
+		return false;
 	}
 	
 	@Override
@@ -207,6 +218,11 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			grabber.close();
 		}
 		
+	}
+	
+	protected void finalize() throws Throwable{
+		close();
+		super.finalize();
 	}
 	
 	// private boolean CheckDepsLoad() {
@@ -237,12 +253,77 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	   // return success;
 	// }	
 	
+	/** Returns virtual stack into which frames are imported from a videofile specified by <b>videoPath</b>. 
+	 * Parameters defining the import:
+	 * @param first the starting video frame to import 
+	 * (zero based, relative to the total number of frames in the videofile if negative) 
+	 * @param last the ending video frame to import 
+	 * (same agreement as for the <b>first</b>)
+	 * @param decimateBy causes import of only every <b>decimateBy</b> video frame into the stack
+	 * @param convertToGray converts color frames into 8bit gray if <code>true</code>
+	 * @param flipVertical flips frames in vertical direction if <code>true</code> */
 	public ImageStack makeStack (String videoPath, int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
 		if (InitImport(videoPath)) {
 			return makeStack (first, last, decimateBy, convertToGray, flipVertical);
 		}
 		return null;
 	}
+	
+	/** Returns virtual stack into which frames are imported from a videofile specified by <b>videoPath</b>. 
+	 * Parameters defining the import:
+	 * @param first the starting video frame to import 
+	 * (zero based, relative to the total number of frames in the videofile if negative) 
+	 * @param last the ending video frame to import 
+	 * (same agreement as for the <b>first</b>) */
+	public ImageStack makeStack (String videoPath, int first, int last){
+		if (InitImport(videoPath)) {
+			return makeStack (first, last, 1, false, false);
+		}
+		return null;
+	}
+	
+	/** Returns virtual stack into which frames are imported from a videofile specified by <b>videoPath</b>.  */ 
+	 
+	public ImageStack makeStack (String videoPath){
+		if (InitImport(videoPath)) {
+			return makeStack (0, -1, 1, false, false);
+		}
+		return null;
+	}
+	
+	/** Returns hyperstack into which frames are imported from a videofile specified by <b>videoPath</b>. 
+	 * Parameters defining the import:
+	 * @param first the starting video frame to import 
+	 * (zero based, relative to the total number of frames in the videofile if negative) 
+	 * @param last the ending video frame to import 
+	 * (same agreement as for the <b>first</b>)
+	 * @param nSlices number of slices in Z dimension 
+	 * @param nFrames number of frames in T dimension
+	 * @param order order of hyperstack position coordinates in the video sequence ("xyczt(default)" and "xyctz" are currently implemented) 
+	 * @param convertToGray converts color frames into 8bit gray if <code>true</code>
+	 * @param flipVertical flips frames in vertical direction if <code>true</code> 
+	 * @param split_RGB slits RGB frames into three channels if <code>true</code> */
+	public ImageStack makeHyperStack (String videoPath, int first, int last, int nSlices, int nFrames, String order, boolean convertToGray, boolean flipVertical, boolean split_RGB){
+		if (InitImport(videoPath)) {
+			convertToHS = true;
+			splitRGB=split_RGB;
+			int intOrder = CZT;
+			for (int i=0; i<orders.length; i++) {
+				if (order.equals(orders[i])) {
+					intOrder = i;
+					break;
+				}
+			}
+			ordering = intOrder;
+			nHSChannels = (splitRGB && !convertToGray)?3:1;
+		    nHSSlices = nSlices;
+		    nHSFrames = nFrames;
+			return makeStack (first, last, 1, convertToGray, flipVertical);
+		}
+		return null;
+	}
+	
+	
 			
 	private ImageStack makeStack (int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
 		if (!importInitiated) return null;
@@ -290,25 +371,25 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			IJ.log("Height = "+grabber.getImageHeight());
 		
 			previewImp = new ImagePlus();
-			Frame frame = null;
+			Frame previewFrame = null;
 			try {
-				frame = grabber.grabImage();
+				previewFrame = grabber.grabImage();
 				trueStartTime = grabber.getTimestamp();
 				currentFrame=0;
 			} catch (Exception e2) {
 				
 				e2.printStackTrace();
 			}
-			if (frame!=null && frame.image != null) {
-				ImageProcessor ip = new ColorProcessor(converter.convert(frame));
-				previewImp.setProcessor("preview frame 0, timestamp: "+grabber.getTimestamp(),ip);
+			if (previewFrame!=null && previewFrame.image != null) {
+				ImageProcessor previewIp = new ColorProcessor(converter.convert(previewFrame));
+				previewImp.setProcessor("preview frame 0, timestamp: "+grabber.getTimestamp(),previewIp);
 				previewImp.show();
 				
 			}
 			else 
 			{
-				ImageProcessor ip = new ColorProcessor(getWidth(), getHeight());
-				label(ip,"No frame decoded: # "+currentFrame,Color.white);
+				ImageProcessor previewIp = new ColorProcessor(getWidth(), getHeight());
+				label(previewIp,"No frame decoded: # "+currentFrame,Color.white);
 			}
 			
 			
@@ -325,33 +406,76 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 							+"\nFrames in video stream = "+nb_frames_in_video);
 			Panel TotFramesPan = new Panel();
 			gd.addPanel(TotFramesPan);
+			
 			final Label TotFramesLbl = new Label("Total frames to import: "+nTotalFrames);
 			TotFramesPan.add(TotFramesLbl); 
+			
 			final Checkbox TotFramesOption = new Checkbox("Prefer number of frames specified in video stream", nTotalFrames==nb_frames_in_video);
 			TotFramesOption.setEnabled(nb_frames_in_video>0);
-			
 			TotFramesPan.add(TotFramesOption);
-			Panel previewPanel = new Panel();
-			gd.addPanel(previewPanel);
 			
-			Label previewLbl = new Label("Preview video frame...");
+			Panel previewPanel = new Panel();
+			
+			
+			Label previewLbl = new Label("Preview frame...");
 			previewPanel.add(previewLbl);
-			gd.addMessage("Specify a range of frames to import from video.\n"+
-						  "Positive numbers are frame positions "+
-						  "from the beginning (0=first frame).\n"+
-						  "Negative numbers correspond to positions "+
-						  "counted from the end (-1=last frame)");
-			gd.addNumericField("First frame", 0, 0);
-			gd.addNumericField("Last frame", -1, 0);
-			gd.addCheckbox("Convert to Grayscale", convertToGray);
-			gd.addCheckbox("Flip Vertical", flipVertical);
-			gd.addNumericField("Decimate by (select every nth frame) ", 1, 0);
-			gd.addNumericField("", 0, 0);
 			
 			final JSlider frameSlider = new JSlider(0, nTotalFrames-1, 0);
-			final TextField previewFrameNum = ((TextField)gd.getNumericFields().elementAt(3));
+			previewPanel.add(frameSlider);
 			
+			final TextField previewFrameNum = new TextField("0",12);//((TextField)gd.getNumericFields().elementAt(3));
 			previewPanel.add(previewFrameNum);
+			
+			final Button setFirstButt = new Button("Set first");
+			previewPanel.add(setFirstButt);
+			
+			final Button setLastButt = new Button("Set last");
+			previewPanel.add(setLastButt);
+			
+			gd.addPanel(previewPanel);
+			
+			
+			gd.addMessage("Specify a range of frames to import from video.\n"+
+						  "Positive numbers are frame positions from the beginning (0=first frame).\n"+
+						  "Negative numbers correspond to positions counted from the end (-1=last frame)");
+			
+			gd.addNumericField("First frame", 0, 0);
+			final TextField firstField = ((TextField)gd.getNumericFields().elementAt(0));
+			
+			gd.addNumericField("Last frame", -1, 0);
+			final TextField lastField = ((TextField)gd.getNumericFields().elementAt(1));
+			
+			gd.addCheckbox("Convert to Grayscale", convertToGray);
+			final Checkbox grayCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(0));
+			
+			gd.addCheckbox("Flip Vertical", flipVertical);
+			
+			final String[] streamOperations = new String[]{"leave as is", "decimate", "transform to hyperstack"};
+			gd.addChoice("Frame sequence operations", streamOperations, streamOperations[0]);
+			final Choice streamOpChoice = ((Choice)gd.getChoices().elementAt(0));
+			
+			gd.addNumericField("Decimate by (select every nth frame) ", 1, 0);
+			final TextField decimateField = ((TextField)gd.getNumericFields().elementAt(2));
+			decimateField.setEnabled(streamOpChoice.getSelectedIndex()==1);
+			
+	        gd.addChoice("Hyperstack order:", orders, orders[ordering]);
+	        final Choice orderChoice = (Choice) gd.getChoices().elementAt(1);
+	        orderChoice.setEnabled(streamOpChoice.getSelectedIndex()==2);
+	         
+	        gd.addNumericField("Slices (z):", nTotalFrames, 0);
+	        final TextField slicesField = ((TextField)gd.getNumericFields().elementAt(3));
+	        slicesField.setEnabled(streamOpChoice.getSelectedIndex()==2);
+	        
+	        gd.addNumericField("Frames (t):", 1, 0);
+	        final TextField framesField = ((TextField)gd.getNumericFields().elementAt(4));
+	        framesField.setEnabled(streamOpChoice.getSelectedIndex()==2);
+	        
+	        gd.addCheckbox("Convert RGB to 3 Channel Hyperstack", splitRGB);
+	        final Checkbox splitCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(2));
+	        splitCheckBox.setEnabled(!grayCheckBox.getState() 
+	        		&& streamOpChoice.getSelectedItem().equalsIgnoreCase(streamOperations[2]));
+			
+			
 			
 			previewFrameNum.addTextListener(new TextListener() {
 	            public void textValueChanged(TextEvent e) {
@@ -362,23 +486,23 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						if (frameNum>=nTotalFrames) frameNum = nTotalFrames - 1;
 						if (frameNum != frameSlider.getValue())	frameSlider.setValue(frameNum);
 						try {
-							grabber.setTimestamp(Math.round((long)AV_TIME_BASE * frameNum / frameRate) + trueStartTime);//setFrameNumber(frameNum);
-							Frame frame = grabber.grabImage();
+							grabber.setVideoTimestamp(Math.round((long)AV_TIME_BASE * frameNum / frameRate) + trueStartTime);//setFrameNumber(frameNum);
+							Frame previewFrame = grabber.grabImage();
 							currentFrame=frameNum;
-							ImageProcessor ip;
-							if (frame!=null && frame.image != null)
+							ImageProcessor previewIp;
+							if (previewFrame!=null && previewFrame.image != null)
 							{					
-								ip = new ColorProcessor(converter.convert(frame));
+								previewIp = new ColorProcessor(converter.convert(previewFrame));
 							} 
 							else 
 							{
-								ip = new ColorProcessor(getWidth(), getHeight());
-								label(ip,"No frame decoded: # "+frameNum,Color.white);
+								previewIp = new ColorProcessor(getWidth(), getHeight());
+								label(previewIp,"No frame decoded: # "+frameNum,Color.white);
 								IJ.log("Null frame at "+frameNum);//+" ("+getFrameNumberRounded(grabber.getTimestamp())+")");
 							}
 							if (previewImp == null) previewImp = new ImagePlus();
 							if (!previewImp.isVisible()) previewImp.show();
-							previewImp.setProcessor("preview frame "+frameNum+ ", timestamp: "+grabber.getTimestamp(), ip);
+							previewImp.setProcessor("preview frame "+frameNum+ ", timestamp: "+grabber.getTimestamp(), previewIp);
 							
 						} catch (Exception e1) {
 							e1.printStackTrace();
@@ -386,14 +510,12 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						
 					} catch (NumberFormatException e1) {
 						IJ.log("Enter a non-negative integer number");
-						//e1.printStackTrace();
 					}
 	            	
 	            }
 	        });
 			
 			frameSlider.addChangeListener(new ChangeListener() {
-
 				@Override
 				public void stateChanged(ChangeEvent e) {
 						int frameNum = frameSlider.getValue();
@@ -402,7 +524,8 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				}
 				
 			});
-			previewPanel.add(frameSlider);
+			
+			
 			
 			TotFramesOption.addItemListener(new ItemListener()
 			{
@@ -422,10 +545,125 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 					}
 					TotFramesLbl.setText("Total frames to import: "+nTotalFrames);
 					frameSlider.setMaximum(nTotalFrames);
+					int firstVal = Integer.parseInt(firstField.getText());
+					int lastVal = Integer.parseInt(lastField.getText());
+					int nVidFrames = 1 + (lastVal + (lastVal<0?nTotalFrames:0))-(firstVal + (firstVal<0?nTotalFrames:0));
+					framesField.setText(""+1);
+					slicesField.setText(""+nVidFrames);
 				}
 				
 				
 			});
+			
+			firstField.addTextListener(new TextListener(){
+
+				@Override
+				public void textValueChanged(TextEvent e) {
+					try {
+						int firstVal = Integer.parseInt(firstField.getText());
+						int firstAbs = firstVal + (firstVal<0?nTotalFrames:0);
+						if (firstAbs>=nTotalFrames-1 || firstAbs<0){
+							firstField.setText("0");
+							return;
+						}
+						int lastVal = Integer.parseInt(lastField.getText());
+						int lastAbs = lastVal + (lastVal<0?nTotalFrames:0);
+						if (firstAbs>=lastAbs){
+							lastField.setText("-1");
+							lastVal = -1;
+						}
+						int nVidFrames = 1 + (lastVal + (lastVal<0?nTotalFrames:0))-(firstVal + (firstVal<0?nTotalFrames:0));
+						framesField.setText(""+1);
+						slicesField.setText(""+nVidFrames);
+					} catch (NumberFormatException e1) {
+					}
+					
+					
+				}});
+			
+			lastField.addTextListener(new TextListener(){
+
+				@Override
+				public void textValueChanged(TextEvent e) {
+					try {
+						int firstVal = Integer.parseInt(firstField.getText());
+						int firstAbs = firstVal + (firstVal<0?nTotalFrames:0);
+						int lastVal = Integer.parseInt(lastField.getText());
+						int lastAbs = lastVal + (lastVal<0?nTotalFrames:0);
+						if (lastAbs>=nTotalFrames || lastAbs<=0){
+							lastField.setText("-1");
+							return;
+						}
+						if (lastAbs<=firstAbs){
+							firstField.setText("0");
+							firstVal = 0;
+						}
+						int nVidFrames = 1 + (lastVal + (lastVal<0?nTotalFrames:0))-(firstVal + (firstVal<0?nTotalFrames:0));
+						framesField.setText(""+1);
+						slicesField.setText(""+nVidFrames);
+					} catch (NumberFormatException e1) {
+					}
+					
+					
+				}});
+			
+			streamOpChoice.addItemListener(new ItemListener(){
+
+				@Override
+				public void itemStateChanged(ItemEvent e) {
+					String selected = streamOpChoice.getSelectedItem();
+					boolean decimate = selected.equalsIgnoreCase(streamOperations[1]);
+					boolean makeHS = selected.equalsIgnoreCase(streamOperations[2]);
+					decimateField.setEnabled(decimate);
+					slicesField.setEnabled(makeHS);
+					framesField.setEnabled(makeHS);
+					orderChoice.setEnabled(makeHS);
+					splitCheckBox.setEnabled(!grayCheckBox.getState() && makeHS);
+				}});
+			
+			grayCheckBox.addItemListener(new ItemListener(){
+
+				@Override
+				public void itemStateChanged(ItemEvent e) {
+					String selected = streamOpChoice.getSelectedItem();
+					splitCheckBox.setEnabled(!grayCheckBox.getState() && selected.equalsIgnoreCase(streamOperations[2]));
+				}});
+			
+			setFirstButt.addActionListener(new ActionListener(){
+
+				@Override
+				public void actionPerformed(ActionEvent e) {
+					int position = frameSlider.getValue();
+					if (position == nTotalFrames - 1){
+						IJ.showMessage("The last frame cannot be selectd as first!");
+						return;
+					}
+					int lastVal = Integer.parseInt(lastField.getText());
+					int lastAbs = lastVal + (lastVal<0?nTotalFrames:0);
+					if (lastAbs<=position) lastAbs = nTotalFrames - 1;
+					firstField.setText(""+position);
+					lastField.setText(""+lastAbs);
+					
+					
+				}});
+			
+			setLastButt.addActionListener(new ActionListener(){
+
+				@Override
+				public void actionPerformed(ActionEvent e) {
+					int position = frameSlider.getValue();
+					if (position == 0){
+						IJ.showMessage("The first frame cannot be selectd as last!");
+						return;
+					}
+					int firstVal = Integer.parseInt(firstField.getText());
+					int firstAbs = firstVal + (firstVal<0?nTotalFrames:0);
+					if (firstAbs>=position) firstAbs = 0;
+					firstField.setText(""+firstAbs);
+					lastField.setText(""+position);
+					
+					
+				}});
 			
 			gd.setSmartRecording(true);
 			gd.pack();
@@ -444,7 +682,20 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			lastFrame = (int) gd.getNextNumber();
 			convertToGray = gd.getNextBoolean();
 			flipVertical = gd.getNextBoolean();
-			decimateBy = (int) gd.getNextNumber();
+			String streamOp = gd.getNextChoice();
+			convertToHS = false;
+			decimateBy = 1;
+			int decby = (int) gd.getNextNumber();
+			if (streamOp.equalsIgnoreCase(streamOperations[1]) ) decimateBy = decby;
+			else if (streamOp.equalsIgnoreCase(streamOperations[2])) convertToHS = true;
+			ordering = gd.getNextChoiceIndex();
+	        nHSChannels = 1;
+	        nHSSlices = (int) gd.getNextNumber();
+	        nHSFrames = (int) gd.getNextNumber();
+	            splitRGB = gd.getNextBoolean();
+	            if (splitRGB && !convertToGray)
+	            	nHSChannels = 3;
+			
 			if (!IJ.isMacro()) {
 				staticConvertToGray = convertToGray;
 				staticFlipVertical = flipVertical;
@@ -452,7 +703,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			IJ.register(this.getClass());
 			return true;
 		} else {
-			IJ.showMessage("Error", "The file cannot be open");
+			IJ.showMessage("Error", "The file cannot be open as video");
 		}
 		return false;
 		
@@ -471,6 +722,20 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		ip.drawString(msg, size, size*2);
 	}
 
+	
+	private int translateHStoVideoPosition(int n){
+		if (!convertToHS) return n;
+		int T, Z, n_video=1;
+		T = (((n-1)/nHSChannels)%nHSSlices)+1;
+		Z = (((n-1)/(nHSChannels*nHSSlices))%nHSFrames)+1;
+		if (ordering==CZT){
+			n_video = (Z-1)*nHSSlices + T;
+		} else if (ordering==CTZ){
+			n_video = (T-1)*nHSFrames + Z;
+		}
+		return n_video;
+	}
+	
 	/** Returns an ImageProcessor for the specified slice,
 	were 1<=n<=nslices. Returns null if the stack is empty.
 	 */
@@ -478,11 +743,13 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		if (grabber==null || n>getSize() || n<1) {
 			throw new IllegalArgumentException("Slice is out of range "+n);
 		}
+		int n_video = translateHStoVideoPosition(n);
+
 		Frame resFrame=null;
 		long tst=0;
 		
-		if(((n-1)*decimateBy+firstFrame!=currentFrame)) {
-			if ((n-1)*decimateBy+firstFrame==currentFrame+1 && n>1 && frame!=null) {
+		if(((n_video-1)*decimateBy+firstFrame!=currentFrame)) {
+			if ((n_video-1)*decimateBy+firstFrame==currentFrame+1 && n_video>1 && frame!=null) {
 				try {
 					resFrame = grabber.grabImage();
 					tst = grabber.getTimestamp();
@@ -491,12 +758,12 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				}
 			} else {
 				try {
-					if ((n-1)*decimateBy+firstFrame==0) {
+					if ((n_video-1)*decimateBy+firstFrame==0) {
 						if (currentFrame>0) grabber.restart();
 						resFrame = grabber.grabImage();
 						tst = grabber.getTimestamp();
-					} else if ((n-1)*decimateBy+firstFrame>0) {
-						grabber.setTimestamp(Math.round((long)AV_TIME_BASE * ((n-1)*decimateBy+firstFrame) / frameRate) + trueStartTime);
+					} else if ((n_video-1)*decimateBy+firstFrame>0) {
+						grabber.setVideoTimestamp(Math.round((long)AV_TIME_BASE * ((n_video-1)*decimateBy+firstFrame) / frameRate) + trueStartTime);
 						resFrame = grabber.grabImage();
 						tst = grabber.getTimestamp();
 					}
@@ -504,16 +771,23 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 					e.printStackTrace();
 				}
 			}
-			currentFrame = (n-1)*decimateBy+firstFrame;
-			labels[n-1] = String.format(Locale.US, "%8.6f s", tst/(double)AV_TIME_BASE);
-			framesTimeStamps[n-1] = tst;
+			currentFrame = (n_video-1)*decimateBy+firstFrame;
+			labels[n_video-1] = String.format(Locale.US, "%8.6f s", tst/(double)AV_TIME_BASE);
+			framesTimeStamps[n_video-1] = tst;
 			frame=resFrame;
 			if (resFrame!=null && resFrame.image != null) {
 				ip = new ColorProcessor(converter.convert(frame));
-				if (convertToGray)
-					ip = ip.convertToByte(false);
 				if (flipVertical)
 					ip.flipVertical();
+				if (convertToGray)
+					ip = ip.convertToByte(false);
+				else if (!convertToGray && splitRGB){
+					int C = ((n-1)%nHSChannels)+1;
+					ip = new ByteProcessor(getWidth(), getHeight(), ((ColorProcessor)ip).getChannel(C));
+					
+				}
+				
+				
 			} else {
 				ip = new ColorProcessor(getWidth(), getHeight());
 				label(ip,"No frame decoded: # "+currentFrame+" at "+(tst/(double)AV_TIME_BASE),Color.white);
@@ -521,7 +795,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 
 		}
 		if (ip==null) {
-			throw new NullPointerException("No ImageProcessor created after last grabFrame "+(n+firstFrame-1));
+			throw new NullPointerException("No ImageProcessor created after last grabFrame "+(n_video+firstFrame-1));
 		}
 		return ip;
 	}
@@ -547,8 +821,8 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	
 	/** Returns the number of slices in this stack. */
 	public int getSize() {
-		int range = lastFrame==-1?nTotalFrames-firstFrame-1:lastFrame-firstFrame; 
-		return range/decimateBy +1;
+		int range = (lastFrame + (lastFrame<0?nTotalFrames:0))-(firstFrame + (firstFrame<0?nTotalFrames:0));//lastFrame==-1?nTotalFrames-firstFrame-1:lastFrame-firstFrame; 
+		return (range/decimateBy +1)*nHSChannels;
 	}
 	
 	/** Returns total number of frames in the video file. */
@@ -578,7 +852,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 
 
 
-	/** Returns the path to the directory containing the images. */
+	/** Returns the path to the directory containing the videofile. */
 	public String getDirectory() {
 		return fileDirectory;
 	}
@@ -588,17 +862,20 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		return fileName;
 	}
 
-	/** Deletes the last slice in the stack. */
+	/** Deletes the last slice in the stack.
+	 * not implemented for the stack of imported video frames */
 	public void deleteLastSlice() {
 
 	}
 
-	/** Adds an image to the end of the stack. */
+	/** Adds an image to the end of the stack. 
+	 * not implemented for the stack of imported video frames */
 	public void addSlice(String name) {
 
 	}
 
-	/** Deletes the specified slice, were 1<=n<=nslices. */
+	/** Deletes the specified slice, were 1<=n<=nslices. 
+	 * not implemented for the stack of imported video frames*/
 	public void deleteSlice(int n) {
 
 	}

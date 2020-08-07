@@ -10,7 +10,6 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.MalformedURLException;
-import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
 
@@ -62,7 +61,6 @@ public class Install_JavaCV implements PlugIn {
 
 	@Override
 	public void run(String arg) {
-		IJ.log("FFmpegFrameGrabber test");
 		
 		if(CheckJavaCV(true)) {
 			IJ.log("javacv is installed");
@@ -169,29 +167,32 @@ public class Install_JavaCV implements PlugIn {
 		
 		
 		if (fiji) return jarsPath;
-		else {
-			File pluginFile; 
-			String path = IJ.getDirectory("plugins");
-			try {
-				pluginFile = new File(Class.forName("Install_JavaCV").getProtectionDomain().getCodeSource().getLocation().toURI());
-				if (pluginFile.isFile()) path = pluginFile.getParent().replace(altSeparator, File.separatorChar)+File.separator;
-				else if (pluginFile.isDirectory()) {
-					path = pluginFile.getPath().replace(altSeparator, File.separatorChar);
-					if (!path.endsWith(File.separator)) path+=File.separator;
-				}
-				
-				
-			} catch (URISyntaxException e) {
-				e.printStackTrace();
-			} catch (ClassNotFoundException e) {
-				e.printStackTrace();
-			}
-			return path;
-		}
+		else return  IJ.getDirectory("plugins");
+//		else {
+//			File pluginFile; 
+//			String path = IJ.getDirectory("plugins");
+//			try {
+//				pluginFile = new File(Class.forName("Install_JavaCV").getProtectionDomain().getCodeSource().getLocation().toURI());
+//				if (pluginFile.isFile()) path = pluginFile.getParent().replace(altSeparator, File.separatorChar)+File.separator;
+//				else if (pluginFile.isDirectory()) {
+//					path = pluginFile.getPath().replace(altSeparator, File.separatorChar);
+//					if (!path.endsWith(File.separator)) path+=File.separator;
+//				}
+//				
+//				
+//			} catch (URISyntaxException e) {
+//				e.printStackTrace();
+//			} catch (ClassNotFoundException e) {
+//				e.printStackTrace();
+//			}
+//			return path;
+//		}
 	}
 	
 	/**
 	 * Returns true if video import plugin can run.
+	 * Checks if all necessary dependencies are installed, 
+	 * prompts to install if missing.
 	 */
 	public static boolean CheckJavaCV(boolean showOptDlg){
 	
@@ -209,7 +210,7 @@ public class Install_JavaCV implements PlugIn {
 		
 		dependencies = new Dependency[8];
 		String depsPath = GetDependenciesPath(), natLibsPath = depsPath;
-		boolean fiji = depsPath.endsWith("jars"+File.separator);
+		//boolean fiji = depsPath.endsWith("jars"+File.separator);
 		String platformSuffix = null;
 		
 		if(IJ.isLinux())
@@ -223,7 +224,7 @@ public class Install_JavaCV implements PlugIn {
 			IJ.showMessage("Unsupported operating system");
 			return false;
 		}
-		if (fiji)
+		//if (fiji)
 			natLibsPath += (IJ.isLinux() ? (IJ.is64Bit() ? "linux64" : "linux32") 
 										 : (IJ.isWindows() ? (IJ.is64Bit() ? "win64" : "win32") : "macosx"))
 										+File.separator;
