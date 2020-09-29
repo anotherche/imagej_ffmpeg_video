@@ -1,8 +1,9 @@
 package ffmpeg_video_import;
 
-import javacv_install.Install_JavaCV;
-
 import java.io.File;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
+import java.util.Hashtable;
 import java.util.Locale;
 import java.awt.*;
 import java.awt.event.*;
@@ -16,6 +17,7 @@ import ij.plugin.HyperStackConverter;
 import ij.plugin.PlugIn;
 import ij.ImagePlus;
 import ij.ImageStack;
+import ij.Menus;
 import ij.VirtualStack;
 import ij.WindowManager;
 import ij.gui.NonBlockingGenericDialog;
@@ -92,7 +94,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	@Override
 	public void run(String arg) {
 					
-		if (!Install_JavaCV.CheckJavaCV(false) || Install_JavaCV.restartRequired) return;
+		if (!CheckJavaCV("ffmpeg")) return;
 		
 		OpenDialog	od = new OpenDialog("Open Video File");
 		String path = od.getPath();
@@ -134,7 +136,45 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	}
 	
 	
-	
+	private boolean CheckJavaCV(String components) {
+		String javaCVInstallCommand = "Install JavaCV libraries";
+    	Hashtable table = Menus.getCommands();
+		String javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
+		if (javaCVInstallClassName.endsWith("\")")) {
+			int argStart = javaCVInstallClassName.lastIndexOf("(\"");
+			if (argStart>0) {
+				javaCVInstallClassName = javaCVInstallClassName.substring(0, argStart);
+			}
+		}
+		String javaCVInstallNotFound = "JavaCV install plugin is not found. Will try to run without JavaCV installation check.";
+		boolean doRestart = false;
+		if (javaCVInstallClassName!=null) {
+			
+			try {
+				Class c = Class.forName(javaCVInstallClassName);
+				Field restartRequired = c.getField("restartRequired");
+				doRestart = (boolean)restartRequired.get(null);
+				if (doRestart){
+					IJ.showMessage("ImageJ was not restarted after JavaCV installation!");
+					return false;
+				}
+				Method mCheckJavaCV = c.getMethod("CheckJavaCV", String.class, boolean.class, boolean.class);
+				mCheckJavaCV.invoke(null, components, false, false);
+				doRestart = (boolean)restartRequired.get(null);
+				if (doRestart){
+					return false;
+				}
+			} 
+			catch (Exception e) {
+				IJ.log(javaCVInstallNotFound);
+				return true;
+			}
+		}
+		else {
+			IJ.log(javaCVInstallNotFound);
+		}
+		return true;
+	}
 			
 	
 	/** Initializes FFmpegFrameGrabber that reads video frames 
@@ -216,6 +256,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		if (grabber!=null){
 			
 			grabber.close();
+			importInitiated = false;
 		}
 		
 	}

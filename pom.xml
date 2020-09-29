@@ -8,13 +8,13 @@
 	<parent>
 		<groupId>org.scijava</groupId>
 		<artifactId>pom-scijava</artifactId>
-		<version>29.0.0-beta-3</version>
+		<version>29.2.1</version>
 	<relativePath />
 	</parent>
 
 	<groupId>anotherche.plugins.imagej</groupId> 
     <artifactId>FFmpeg_FrameReader</artifactId>
-    <version>0.3.0</version>
+    <version>0.3.1</version>
 	
 	<name>FFmpeg_FrameReader.jar</name>
 	<description>Opens video files supported by FFmpeg as virtual stack of frame sequence. ImageJ plugin.</description>
