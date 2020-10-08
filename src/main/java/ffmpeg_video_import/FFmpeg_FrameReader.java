@@ -401,9 +401,9 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		if (InitImport(path)) {
 			IJ.log("--------------");
 			IJ.log("File name: "+fileName);
-			IJ.log("Estimated frames = "+nb_frames_estimated);
+			IJ.log("Estimated number of frames = "+nb_frames_estimated);
 			IJ.log("Frames in video stream = "+nb_frames_in_video);
-			IJ.log("Total frames = "+nTotalFrames);
+			IJ.log("Total number of frames = "+nTotalFrames);
 			IJ.log("Format = "+grabber.getFormat());
 			IJ.log("Duration = "+(grabber.getLengthInTime()/(AV_TIME_BASE*1.0))+" s");
 			IJ.log("Video duration = "+video_stream_duration+" s");
@@ -436,6 +436,8 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			
 			
 			NonBlockingGenericDialog gd = new NonBlockingGenericDialog("Import settings");
+			int numericFieldIndex = 0;
+			int checkBoxIndex = 0;
 
 			gd.addMessage("File name: "+fileName
 							+"\nFormat = "+grabber.getFormat()
@@ -443,12 +445,12 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 							+"\nDuration = "+(grabber.getLengthInTime()/(AV_TIME_BASE*1.0))+" s"
 							+"\nVideo duration = "+video_stream_duration+" s"
 							+"\nAverage frame rate = "+grabber.getFrameRate()
-							+"\nEstimated frames = "+nb_frames_estimated
-							+"\nFrames in video stream = "+nb_frames_in_video);
+							+"\nEstimated number of frames = "+nb_frames_estimated
+							+"\nNumber of frames specified in video stream info = "+nb_frames_in_video);
 			Panel TotFramesPan = new Panel();
 			gd.addPanel(TotFramesPan);
 			
-			final Label TotFramesLbl = new Label("Total frames to import: "+nTotalFrames);
+			final Label TotFramesLbl = new Label("Total number of frames: "+nTotalFrames);
 			TotFramesPan.add(TotFramesLbl); 
 			
 			final Checkbox TotFramesOption = new Checkbox("Prefer number of frames specified in video stream", nTotalFrames==nb_frames_in_video);
@@ -476,27 +478,32 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			gd.addPanel(previewPanel);
 			
 			
-			gd.addMessage("Specify a range of frames to import from video.\n"+
-						  "Positive numbers are frame positions from the beginning (0=first frame).\n"+
-						  "Negative numbers correspond to positions counted from the end (-1=last frame)");
+			gd.addMessage("Specify a range of frames to import from the video.\n"+
+						  "Positive numbers are frame positions from the beginning (0 = the first frame).\n"+
+						  "Negative numbers correspond to positions counted from the end (-1 = the last frame)");
 			
 			gd.addNumericField("First frame", 0, 0);
-			final TextField firstField = ((TextField)gd.getNumericFields().elementAt(0));
+			final TextField firstField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 			
 			gd.addNumericField("Last frame", -1, 0);
-			final TextField lastField = ((TextField)gd.getNumericFields().elementAt(1));
+			final TextField lastField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
+			
+			gd.addNumericField("Number of frames to import", nTotalFrames, 0);
+			final TextField framesToImportField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
+			framesToImportField.setEnabled(false);
 			
 			gd.addCheckbox("Convert to Grayscale", convertToGray);
-			final Checkbox grayCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(0));
+			final Checkbox grayCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(checkBoxIndex++));
 			
 			gd.addCheckbox("Flip Vertical", flipVertical);
+			checkBoxIndex++;
 			
 			final String[] streamOperations = new String[]{"leave as is", "decimate", "transform to hyperstack"};
 			gd.addChoice("Frame sequence operations", streamOperations, streamOperations[0]);
 			final Choice streamOpChoice = ((Choice)gd.getChoices().elementAt(0));
 			
 			gd.addNumericField("Decimate by (select every nth frame) ", 1, 0);
-			final TextField decimateField = ((TextField)gd.getNumericFields().elementAt(2));
+			final TextField decimateField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 			decimateField.setEnabled(streamOpChoice.getSelectedIndex()==1);
 			
 	        gd.addChoice("Hyperstack order:", orders, orders[ordering]);
@@ -504,15 +511,15 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	        orderChoice.setEnabled(streamOpChoice.getSelectedIndex()==2);
 	         
 	        gd.addNumericField("Slices (z):", nTotalFrames, 0);
-	        final TextField slicesField = ((TextField)gd.getNumericFields().elementAt(3));
+	        final TextField slicesField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 	        slicesField.setEnabled(streamOpChoice.getSelectedIndex()==2);
 	        
 	        gd.addNumericField("Frames (t):", 1, 0);
-	        final TextField framesField = ((TextField)gd.getNumericFields().elementAt(4));
+	        final TextField framesField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 	        framesField.setEnabled(streamOpChoice.getSelectedIndex()==2);
 	        
 	        gd.addCheckbox("Convert RGB to 3 Channel Hyperstack", splitRGB);
-	        final Checkbox splitCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(2));
+	        final Checkbox splitCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(checkBoxIndex++));
 	        splitCheckBox.setEnabled(!grayCheckBox.getState() 
 	        		&& streamOpChoice.getSelectedItem().equalsIgnoreCase(streamOperations[2]));
 			
@@ -577,20 +584,21 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 					if (preferStream && nb_frames_in_video > 0) 
 					{
 						nTotalFrames = nb_frames_in_video;
-						IJ.log("Total frames set according to stream info: "+nTotalFrames);
+						IJ.log("Total number of frames set according to the video stream info: "+nTotalFrames);
 					}
 					else 
 					{
 						nTotalFrames = nb_frames_estimated;
-						IJ.log("Total frames set according to estimation: "+nTotalFrames);
+						IJ.log("Total number of frames set according to estimation: "+nTotalFrames);
 					}
-					TotFramesLbl.setText("Total frames to import: "+nTotalFrames);
+					TotFramesLbl.setText("Total number of frames: "+nTotalFrames);
 					frameSlider.setMaximum(nTotalFrames);
 					int firstVal = Integer.parseInt(firstField.getText());
 					int lastVal = Integer.parseInt(lastField.getText());
 					int nVidFrames = 1 + (lastVal + (lastVal<0?nTotalFrames:0))-(firstVal + (firstVal<0?nTotalFrames:0));
 					framesField.setText(""+1);
 					slicesField.setText(""+nVidFrames);
+					framesToImportField.setText(""+nVidFrames);
 				}
 				
 				
@@ -616,6 +624,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						int nVidFrames = 1 + (lastVal + (lastVal<0?nTotalFrames:0))-(firstVal + (firstVal<0?nTotalFrames:0));
 						framesField.setText(""+1);
 						slicesField.setText(""+nVidFrames);
+						framesToImportField.setText(""+nVidFrames);
 					} catch (NumberFormatException e1) {
 					}
 					
@@ -642,6 +651,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						int nVidFrames = 1 + (lastVal + (lastVal<0?nTotalFrames:0))-(firstVal + (firstVal<0?nTotalFrames:0));
 						framesField.setText(""+1);
 						slicesField.setText(""+nVidFrames);
+						framesToImportField.setText(""+nVidFrames);
 					} catch (NumberFormatException e1) {
 					}
 					
@@ -721,6 +731,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			
 			firstFrame = (int) gd.getNextNumber();
 			lastFrame = (int) gd.getNextNumber();
+			int numFramesToImport = (int) gd.getNextNumber(); //workaround for unnecessary NumericField
 			convertToGray = gd.getNextBoolean();
 			flipVertical = gd.getNextBoolean();
 			String streamOp = gd.getNextChoice();
