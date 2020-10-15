@@ -266,33 +266,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		super.finalize();
 	}
 	
-	// private boolean CheckDepsLoad() {
-		// boolean success = true;
-		// try {
-			// Class.forName("org.bytedeco.javacpp.Loader");
-			// Loader.load(org.bytedeco.ffmpeg.global.avutil.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.swresample.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.avcodec.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.avformat.class);
-            // Loader.load(org.bytedeco.ffmpeg.global.swscale.class);
-          
-            // Register all formats and codecs
-            // av_jni_set_java_vm(Loader.getJavaVM(), null);
-            // avcodec_register_all();
-            // av_register_all();
-            // avformat_network_init(); 
 
-            // Loader.load(org.bytedeco.ffmpeg.global.avdevice.class);
-            // avdevice_register_all();
-           
-           
-               
-        // } catch (Throwable t) {
-			// t.printStackTrace();
-			// success = false;
-       // }
-	   // return success;
-	// }	
 	
 	/** Returns virtual stack into which frames are imported from a videofile specified by <b>videoPath</b>. 
 	 * Parameters defining the import:
