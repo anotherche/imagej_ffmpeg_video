@@ -1,9 +1,14 @@
+/*
+ * Copyright (C) 2018-2021 Stanislav Chizhik
+ * FFmpeg_FrameReader - ImageJ/Fiji plugin which allows
+ * import of compressed video files into a virtual stack or hyperstack. 
+ * Import is done with FFmpeg library and uses org.bytedeco.javacv.FFmpegFrameGrabber class,
+ * a part of javacv package (java interface to OpenCV, FFmpeg and other) by Samuel Audet.
+ */
+
 package ffmpeg_video_import;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
-import java.util.Hashtable;
 import java.util.Locale;
 import java.awt.*;
 import java.awt.event.*;
@@ -17,7 +22,8 @@ import ij.plugin.HyperStackConverter;
 import ij.plugin.PlugIn;
 import ij.ImagePlus;
 import ij.ImageStack;
-import ij.Menus;
+import ij.Macro;
+import ij.Prefs;
 import ij.VirtualStack;
 import ij.WindowManager;
 import ij.gui.NonBlockingGenericDialog;
@@ -26,10 +32,10 @@ import ij.io.OpenDialog;
 import ij.process.ByteProcessor;
 import ij.process.ColorProcessor;
 import ij.process.ImageProcessor;
-
-
+import ij.plugin.frame.Recorder;
 
 import org.bytedeco.javacv.FFmpegFrameGrabber;
+import org.bytedeco.javacv.FFmpegLogCallback;
 import org.bytedeco.javacv.Java2DFrameConverter;
 import org.bytedeco.javacv.Frame;
 //uncomment this if javacv version < 1.5 
@@ -40,10 +46,13 @@ import org.bytedeco.ffmpeg.avformat.AVFormatContext;
 import org.bytedeco.ffmpeg.avformat.AVStream;
 import org.bytedeco.ffmpeg.avutil.AVRational;
 
-
-
-
 public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, PlugIn {
+	
+	private static final String[] logLevels = new String[] {"no output", "crash", "fatal errors", "non-fatal errors",  
+															"warnings", "info", "detailed", "debug"};
+	private static final int[] logLevCodes = new int[] {AV_LOG_QUIET, AV_LOG_PANIC, AV_LOG_FATAL, AV_LOG_ERROR,
+														AV_LOG_WARNING, AV_LOG_INFO, AV_LOG_VERBOSE, AV_LOG_DEBUG};
+	
 	
 	private String videoFilePath;
 	private String fileDirectory;
@@ -80,6 +89,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	private int 				lastFrame;
 	private int 				decimateBy = 1;		//import every nth frame
 	private boolean 			preferStream; 		//prefer number of frames specified in video stream info
+	private int 				logLevel=0;			//choose log verbosity
 	
 	//Hypestack parameters and constants
 	public static final int CZT=0, CTZ=1;
@@ -94,7 +104,12 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	@Override
 	public void run(String arg) {
 					
-		if (!CheckJavaCV("ffmpeg")) return;
+		if (!CheckJavaCV("1.5", true, "ffmpeg")) return;
+		System.setProperty("org.bytedeco.javacpp.logger", "slf4j"); 
+		System.setProperty("org.bytedeco.javacpp.logger.debug", "true"); 
+		FFmpegLogCallback.set();
+		//FFmpegLogCallback.setLevel(AV_LOG_WARNING );
+		av_log_set_level(AV_LOG_QUIET);
 		
 		OpenDialog	od = new OpenDialog("Open Video File");
 		String path = od.getPath();
@@ -136,42 +151,32 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	}
 	
 	
-	private boolean CheckJavaCV(String components) {
-		String javaCVInstallCommand = "Install JavaCV libraries";
-    	Hashtable table = Menus.getCommands();
-		String javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
-		if (javaCVInstallClassName.endsWith("\")")) {
-			int argStart = javaCVInstallClassName.lastIndexOf("(\"");
-			if (argStart>0) {
-				javaCVInstallClassName = javaCVInstallClassName.substring(0, argStart);
-			}
-		}
-		String javaCVInstallNotFound = "JavaCV install plugin is not found. Will try to run without JavaCV installation check.";
-		boolean doRestart = false;
-		if (javaCVInstallClassName!=null) {
-			
-			try {
-				Class c = Class.forName(javaCVInstallClassName);
-				Field restartRequired = c.getField("restartRequired");
-				doRestart = (boolean)restartRequired.get(null);
-				if (doRestart){
-					IJ.showMessage("ImageJ was not restarted after JavaCV installation!");
-					return false;
-				}
-				Method mCheckJavaCV = c.getMethod("CheckJavaCV", String.class, boolean.class, boolean.class);
-				mCheckJavaCV.invoke(null, components, false, false);
-				doRestart = (boolean)restartRequired.get(null);
-				if (doRestart){
-					return false;
-				}
-			} 
-			catch (Exception e) {
-				IJ.log(javaCVInstallNotFound);
+	private boolean CheckJavaCV(String version, boolean treatAsMinVer, String components) {
+		String installerCommand = "version="
+				+ version
+				+ " select_installation_option=[Install missing] "
+				+ (treatAsMinVer?"treat_selected_version_as_minimal_required ":"")
+				+ components;
+
+		//SR 2021-08-05 begin
+		boolean saveRecorder = Recorder.record;		//save state of the macro Recorder
+		Recorder.record = false;					//disable the macro Recorder to avoid the JavaCV installer plugin being recorded instead of this plugin
+		String saveMacroOptions = Macro.getOptions();
+		IJ.run("Install JavaCV libraries", installerCommand);
+		if (saveMacroOptions != null) Macro.setOptions(saveMacroOptions);
+		Recorder.record = saveRecorder;				//restore the state of the macro Recorder
+		//SR 2021-08-05 end
+
+		
+		String result = Prefs.get("javacv.install_result", "");
+		if (!result.equalsIgnoreCase("success")) {
+			IJ.log("JavaCV installation state: "+result);
+			if(result.indexOf("restart")>-1) {
+				return false;
+			} else {
+				IJ.log("JavaCV installation failed for above reason. Trying to use JavaCV as is...");
 				return true;
 			}
-		}
-		else {
-			IJ.log(javaCVInstallNotFound);
 		}
 		return true;
 	}
@@ -395,16 +400,19 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				
 				e2.printStackTrace();
 			}
-			if (previewFrame!=null && previewFrame.image != null) {
-				ImageProcessor previewIp = new ColorProcessor(converter.convert(previewFrame));
-				previewImp.setProcessor("preview frame 0, timestamp: "+grabber.getTimestamp(),previewIp);
-				previewImp.show();
-				
-			}
-			else 
-			{
-				ImageProcessor previewIp = new ColorProcessor(getWidth(), getHeight());
-				label(previewIp,"No frame decoded: # "+currentFrame,Color.white);
+			
+			if (!IJ.isMacro()) {
+				if (previewFrame!=null && previewFrame.image != null) {
+					ImageProcessor previewIp = new ColorProcessor(converter.convert(previewFrame));
+					previewImp.setProcessor("preview frame 0, timestamp: "+grabber.getTimestamp(),previewIp);
+					previewImp.show();
+					
+				}
+				else 
+				{
+					ImageProcessor previewIp = new ColorProcessor(getWidth(), getHeight());
+					label(previewIp,"No frame decoded: # "+currentFrame,Color.white);
+				}
 			}
 			
 			
@@ -455,49 +463,50 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 			gd.addMessage("Specify a range of frames to import from the video.\n"+
 						  "Positive numbers are frame positions from the beginning (0 = the first frame).\n"+
 						  "Negative numbers correspond to positions counted from the end (-1 = the last frame)");
+		
 			
-			gd.addNumericField("First frame", 0, 0);
+			gd.addNumericField("First_frame", 0, 0);
 			final TextField firstField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 			
-			gd.addNumericField("Last frame", -1, 0);
+			gd.addNumericField("Last_frame", -1, 0);
 			final TextField lastField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 			
-			gd.addNumericField("Number of frames to import", nTotalFrames, 0);
+			gd.addNumericField("Number_of_frames to import", nTotalFrames, 0);
 			final TextField framesToImportField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 			framesToImportField.setEnabled(false);
 			
-			gd.addCheckbox("Convert to Grayscale", convertToGray);
+			gd.addCheckbox("Convert_to_Grayscale", convertToGray);
 			final Checkbox grayCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(checkBoxIndex++));
 			
-			gd.addCheckbox("Flip Vertical", flipVertical);
+			gd.addCheckbox("Flip_Vertical", flipVertical);
 			checkBoxIndex++;
 			
 			final String[] streamOperations = new String[]{"leave as is", "decimate", "transform to hyperstack"};
-			gd.addChoice("Frame sequence operations", streamOperations, streamOperations[0]);
+			gd.addChoice("Frame_sequence operations", streamOperations, streamOperations[0]);
 			final Choice streamOpChoice = ((Choice)gd.getChoices().elementAt(0));
 			
-			gd.addNumericField("Decimate by (select every nth frame) ", 1, 0);
+			gd.addNumericField("Decimate_by (select every nth frame) ", 1, 0);
 			final TextField decimateField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 			decimateField.setEnabled(streamOpChoice.getSelectedIndex()==1);
 			
-	        gd.addChoice("Hyperstack order:", orders, orders[ordering]);
+	        gd.addChoice("Hyperstack_order", orders, orders[ordering]);
 	        final Choice orderChoice = (Choice) gd.getChoices().elementAt(1);
 	        orderChoice.setEnabled(streamOpChoice.getSelectedIndex()==2);
 	         
-	        gd.addNumericField("Slices (z):", nTotalFrames, 0);
+	        gd.addNumericField("Slices_(z):", nTotalFrames, 0);
 	        final TextField slicesField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 	        slicesField.setEnabled(streamOpChoice.getSelectedIndex()==2);
 	        
-	        gd.addNumericField("Frames (t):", 1, 0);
+	        gd.addNumericField("Frames_(t):", 1, 0);
 	        final TextField framesField = ((TextField)gd.getNumericFields().elementAt(numericFieldIndex++));
 	        framesField.setEnabled(streamOpChoice.getSelectedIndex()==2);
 	        
-	        gd.addCheckbox("Convert RGB to 3 Channel Hyperstack", splitRGB);
+	        gd.addCheckbox("Convert_RGB_to_3 Channel Hyperstack", splitRGB);
 	        final Checkbox splitCheckBox =  ((Checkbox)gd.getCheckboxes().elementAt(checkBoxIndex++));
 	        splitCheckBox.setEnabled(!grayCheckBox.getState() 
 	        		&& streamOpChoice.getSelectedItem().equalsIgnoreCase(streamOperations[2]));
-			
-			
+	        
+	        gd.addChoice("Log_level", logLevels, logLevels[logLevel]);
 			
 			previewFrameNum.addTextListener(new TextListener() {
 	            public void textValueChanged(TextEvent e) {
@@ -522,9 +531,12 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 								label(previewIp,"No frame decoded: # "+frameNum,Color.white);
 								IJ.log("Null frame at "+frameNum);//+" ("+getFrameNumberRounded(grabber.getTimestamp())+")");
 							}
-							if (previewImp == null) previewImp = new ImagePlus();
-							if (!previewImp.isVisible()) previewImp.show();
-							previewImp.setProcessor("preview frame "+frameNum+ ", timestamp: "+grabber.getTimestamp(), previewIp);
+							
+							if (!IJ.isMacro()) {
+								if (previewImp == null) previewImp = new ImagePlus();
+								if (!previewImp.isVisible()) previewImp.show();
+								previewImp.setProcessor("preview frame "+frameNum+ ", timestamp: "+grabber.getTimestamp(), previewIp);
+							}
 							
 						} catch (Exception e1) {
 							e1.printStackTrace();
@@ -726,6 +738,10 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 				staticConvertToGray = convertToGray;
 				staticFlipVertical = flipVertical;
 			}
+			
+			logLevel=gd.getNextChoiceIndex();
+			av_log_set_level(logLevCodes[logLevel]);
+			
 			IJ.register(this.getClass());
 			return true;
 		} else {
