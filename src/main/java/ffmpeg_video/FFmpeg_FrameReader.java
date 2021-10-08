@@ -6,9 +6,10 @@
  * a part of javacv package (java interface to OpenCV, FFmpeg and other) by Samuel Audet.
  */
 
-package ffmpeg_video_import;
+package ffmpeg_video;
 
 import java.io.File;
+import java.util.Hashtable;
 import java.util.Locale;
 import java.awt.*;
 import java.awt.event.*;
@@ -23,6 +24,7 @@ import ij.plugin.PlugIn;
 import ij.ImagePlus;
 import ij.ImageStack;
 import ij.Macro;
+import ij.Menus;
 import ij.Prefs;
 import ij.VirtualStack;
 import ij.WindowManager;
@@ -52,6 +54,10 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 															"warnings", "info", "detailed", "debug"};
 	private static final int[] logLevCodes = new int[] {AV_LOG_QUIET, AV_LOG_PANIC, AV_LOG_FATAL, AV_LOG_ERROR,
 														AV_LOG_WARNING, AV_LOG_INFO, AV_LOG_VERBOSE, AV_LOG_DEBUG};
+	
+	private static final String pluginVersion = "0.4.0";
+	
+
 	
 	
 	private String videoFilePath;
@@ -103,7 +109,14 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
     
 	@Override
 	public void run(String arg) {
-					
+		
+//		if(isRestartRequiredByInstaller()){
+//			IJ.log("Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
+//			IJ.showMessage("FFmpeg Viseo Import/Export", "Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
+//		}
+		
+		
+		
 		if (!CheckJavaCV("1.5", true, "ffmpeg")) return;
 		System.setProperty("org.bytedeco.javacpp.logger", "slf4j"); 
 		System.setProperty("org.bytedeco.javacpp.logger.debug", "true"); 
@@ -150,8 +163,22 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		
 	}
 	
+	public String getPluginVersion(){
+		return pluginVersion;
+	}
 	
 	private boolean CheckJavaCV(String version, boolean treatAsMinVer, String components) {
+		
+		String javaCVInstallCommand = "Install JavaCV libraries";
+    	Hashtable table = Menus.getCommands();
+		String javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
+		if (javaCVInstallClassName==null) {
+			IJ.showMessage("JavaCV check", "JavaCV Installer not found.\n"
+					+"Please install it from from JavaCVInstaller update site:\n"
+					+"https://sites.imagej.net/JavaCVInstaller/");
+			return false;
+		}
+		
 		String installerCommand = "version="
 				+ version
 				+ " select_installation_option=[Install missing] "
@@ -169,18 +196,24 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 
 		
 		String result = Prefs.get("javacv.install_result", "");
-		if (!result.equalsIgnoreCase("success")) {
-			IJ.log("JavaCV installation state: "+result);
-			if(result.indexOf("restart")>-1) {
+		String launcherResult = Prefs.get("javacv.install_result_launcher", "");
+		
+		if (!(result.equalsIgnoreCase("success") && launcherResult.equalsIgnoreCase("success"))) {
+//			IJ.log("JavaCV installation state. Prerequisites: "+launcherResult+" JavaCV: "+ result);
+			if(result.indexOf("restart")>-1 || launcherResult.indexOf("restart")>-1) {
+				IJ.log("Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
+//				IJ.showMessage("FFmpeg Viseo Import/Export", "Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
 				return false;
 			} else {
 				IJ.log("JavaCV installation failed for above reason. Trying to use JavaCV as is...");
 				return true;
 			}
 		}
+//		IJ.log("JavaCV installation state. Prerequisites: "+launcherResult+" JavaCV: "+ result);
 		return true;
 	}
-			
+	
+	
 	
 	/** Initializes FFmpegFrameGrabber that reads video frames 
 	 * from a video file specified by <code>path</code> into stack */

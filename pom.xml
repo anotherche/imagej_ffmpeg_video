@@ -13,11 +13,13 @@
 	</parent>
 
 	<groupId>anotherche.plugins.imagej</groupId> 
-    <artifactId>FFmpeg_FrameReader</artifactId>
-    <version>0.3.2</version>
+    <artifactId>FFmpeg_Video</artifactId>
+    <version>0.4.0</version>
 	
-	<name>FFmpeg_FrameReader.jar</name>
-	<description>Opens video files supported by FFmpeg as virtual stack of frame sequence. ImageJ plugin.</description>
+	<name>FFmpeg_Video.jar</name>
+	<description>Two ImageJ plugins for import and export of compressed video using javacv and ffmpeg library .
+1. Opens video files supported by FFmpeg as virtual stack of frame sequence or as a hyperstack.
+2. Saves a stack as compressed video file.</description>
 	<url>http://imagej.net/PhotoBend</url>
 	<inceptionYear>2018</inceptionYear>
 	 <organization>
@@ -50,17 +52,17 @@
 	
 	<issueManagement>
         <system>GitHub Issues</system>
-        <url>https://github.com/anotherche/imagej-ffmpeg-reader/issues</url>
+        <url>https://github.com/anotherche/imagej-ffmpeg-video/issues</url>
     </issueManagement>
     <ciManagement>
         <system>None</system>
 	</ciManagement>
 	
 	<scm>
-		<connection>scm:git:git://github.com/anotherche/imagej-ffmpeg-reader.git</connection>
-		<developerConnection>scm:git:git://github.com/anotherche/imagej-ffmpeg-reader.git</developerConnection>
+		<connection>scm:git:git://github.com/anotherche/imagej-ffmpeg-video.git</connection>
+		<developerConnection>scm:git:git://github.com/anotherche/imagej-ffmpeg-video.git</developerConnection>
 		<tag>HEAD</tag>
-		<url>https://github.com/anotherche/imagej-ffmpeg-reader</url>
+		<url>https://github.com/anotherche/imagej-ffmpeg-video</url>
 	</scm>
 	
 	<developers>
@@ -86,11 +88,11 @@
 	</contributors>
 	
 	<properties>
-		<package-name>ffmpeg_video_import</package-name>
-		<main-class>FFmpeg_FrameReader</main-class>
+		<package-name>ffmpeg_video</package-name>
 		<license.licenseName>gpl</license.licenseName>
 		<license.copyrightOwners>ISSCM SB RAS</license.copyrightOwners>
 
+		<scijava.app.subdirectory>plugins\FFmpeg_Video</scijava.app.subdirectory>
 	</properties>
 	
   <dependencies>
