@@ -71,13 +71,14 @@ import static org.bytedeco.ffmpeg.avcodec.AVCodecContext.*;
 @SuppressWarnings("deprecation")
 public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	
-	private static final String[] formats = new String[] {"auto select", "avi", "mov", "mp4", "mkv"};
-	private static final int defaultFormatIndex = 0;	//automatic selection by extension or by encoder;
-	private static final String defaultFormatForGuess = "mp4";
-	private static final String[] preferredExtensions = new String[] {"mp4", "mkv", "mov", "avi", "wmv"};
-	private static final String[] encoders = new String[] {"by format", "mpeg4", "h264", "h265", "mjpeg", "huffyuv", "custom"};
-	private static final int defaultEncoderIndex = 0;	//automatic selection by format
-	private static final int[] encCodes = new int[] {AV_CODEC_ID_NONE, AV_CODEC_ID_MPEG4, AV_CODEC_ID_H264, 
+	static final String formatByExt = "by file extension";
+	static final String[] formats = new String[] {"auto select", "avi", "mov", "mp4", "mkv", formatByExt};
+	static final int defaultFormatIndex = 0;	//automatic selection by extension or by encoder;
+	static final String defaultFormatForGuess = "mp4";
+	static final String[] preferredExtensions = new String[] {"mp4", "mkv", "mov", "avi", "wmv"};
+	static final String[] encoders = new String[] {"by format", "mpeg4", "h264", "h265", "mjpeg", "huffyuv", "custom"};
+	static final int defaultEncoderIndex = 0;	//automatic selection by format
+	static final int[] encCodes = new int[] {AV_CODEC_ID_NONE, AV_CODEC_ID_MPEG4, AV_CODEC_ID_H264, 
 													AV_CODEC_ID_H265, AV_CODEC_ID_MJPEG, AV_CODEC_ID_HUFFYUV, -1};
 	private static final String[] logLevels = new String[] {"no output", "crash", "fatal errors", "non-fatal errors",  
 															"warnings", "info", "detailed", "debug"};
@@ -89,7 +90,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	
 	
 	private static List<AVCodec> ffmpegEncoders;
-	private static List<AVOutputFormat> ffmpegFormats;
+	static List<AVOutputFormat> ffmpegFormats;
 	
 	
 	private String filePath;
@@ -107,7 +108,6 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	private JTable vcodecOptTab;
 	private int logLevel=0;
 	
-	private	boolean displayDialog = true;
 	private	boolean progressByStackUpdate;
 	private	boolean addTimeStamp;
 	private	boolean initialized = false;
@@ -120,7 +120,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	private FFmpegFrameRecorder recorder;
 	
 	//default formats for encoders
-	private static final Map<String, String> defaultFormats;
+	static final Map<String, String> defaultFormats;
 	static {
         Map<String, String> aMap = new HashMap<String,String>();
         aMap.put(encoders[0], defaultFormatForGuess);
@@ -162,7 +162,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		ip.convertToRGB();
 		frameWidth = imp.getWidth();
     	frameHeight = imp.getHeight();
-		if (displayDialog && !showDialog())					//ask for parameters
+		if (!showDialog())					//ask for parameters
 			return;
 		
 		RecordVideo(filePath, imp, desiredWidth, fps, bitRate, firstSlice, lastSlice);
@@ -328,7 +328,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 			initialTimeStampOption = Prefs.get("ffmpegvideoimport.savedTimeStampOption", false);
 		}
 		
-		final NonBlockingGenericDialog gd = new NonBlockingGenericDialog("AVI Recorder");
+		final SetupDialog gd = new SetupDialog("Export settings", this);//NonBlockingGenericDialog("Export settings");
 		gd.addMessage("Instruction: 1. Select slices to encode. 2. Set width of the output video.\n"+
 						"Output heigth will be scaled proportional (both dimensions will be aligned to 8 pixels)\n"+
 						"3. Specify frame rate in frames per second 4. Specify bitrate of the compressed video (in kbps).\n"+
@@ -338,24 +338,28 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 						"5. Optionally specify additional encoder settings.\n"+
 						"Remember that not all format/encoder combinations are supported.");
 		gd.addNumericField("First_slice", 1, 0);
+		gd.firstSliceField = (TextField)gd.getNumericFields().elementAt(0);
 		gd.addNumericField("Last_slice", stack.getSize(), 0);
+		gd.lastSliceField = (TextField)gd.getNumericFields().elementAt(1);
 		gd.addNumericField("Video_frame_width" , frameWidth, 0);
 		gd.addNumericField("Frame_rate" , 25.0, 3);
 		int br = (int)((frameWidth*frameHeight*25L)/10240L);
 		gd.addNumericField("Video_bitrate" , br<128?128:br, 0);
 		
 		gd.addChoice("Format", formats, formats[initialFormatIndex]);
+		gd.formatChoice = ((Choice)gd.getChoices().elementAt(0));
+		
 		final Button btn_showAvailableFormats = new Button("Show available formats");
 		final Panel availableFormatsPanel = new Panel();
 		availableFormatsPanel.add(btn_showAvailableFormats);
 		gd.addPanel(availableFormatsPanel);
 		
 		gd.addChoice("Encoder", encoders, encoders[initialEncoderIndex]);
-		final Choice encChoice = ((Choice)gd.getChoices().elementAt(1));
+		final Choice encChoice = gd.codecChoice = ((Choice)gd.getChoices().elementAt(1));
 		
 		//Custom encoder
 		gd.addStringField("Custom_encoder", initialCustomEnc);
-		final TextField customEncName = ((TextField)gd.getStringFields().elementAt(0));
+		final TextField customEncName = gd.customEncField = ((TextField)gd.getStringFields().elementAt(0));
 		final Button btn_getEncoders = new Button("Show encoders");
 		final Button btn_getCompatibleFormats = new Button("Show compatible formats");
 		final Panel customEncPanel = new Panel();
@@ -536,8 +540,6 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		});
 		
 		
-		
-		
 		gd.pack();
 		gd.setSmartRecording(true);
 		gd.showDialog();
@@ -576,15 +578,134 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		progressByStackUpdate = gd.getNextBoolean();
 		addTimeStamp = gd.getNextBoolean();
 		
+		String codec = "";
+		if(encCodes[codecCode]!=0) codec = "[" + (encCodes[codecCode]<0? customVEnc:avcodec_find_encoder(encCodes[codecCode]).name().getString()).toUpperCase()+"]";
 
-		if ((encCodes[codecCode]<0 && avcodec_find_encoder_by_name(customVEnc) == null) ||
-			(encCodes[codecCode]>0 && avcodec_find_encoder(encCodes[codecCode]) == null)) {
-			IJ.showMessage("Error", "Selected encoder is not supported");
+		if(!IsCodecSupported(codecCode, customVEnc)) {
+			IJ.showMessage("Error", "Selected encoder " + codec + " is not supported");
 			return false;
 		}
 
-		String suggestedExtension;
-		if (formatCode>0) suggestedExtension = formats[formatCode].toLowerCase();
+		String suggestedExtension = getSuggestedExtension(formatCode, codecCode, customVEnc);
+		if (suggestedExtension.isEmpty()) suggestedExtension = defaultFormatForGuess;
+//		if (formatCode>0) {
+//			if (formats[formatCode].equals(formatByExt)) suggestedExtension = defaultFormatForGuess;
+//			else suggestedExtension = formats[formatCode].toLowerCase();
+//		}
+//		else {
+//			suggestedExtension = defaultFormats.get(encoders[codecCode]);
+//			if (encCodes[codecCode]==-1) {
+//				LinkedHashSet<String> compatExt = new LinkedHashSet<String>();
+//				AVCodec enc = avcodec_find_encoder_by_name(customVEnc);
+//				int id = enc.id();
+//				for(AVOutputFormat oformat : ffmpegFormats){
+//					int[] r = EncoderFromatCompliance(id, oformat);
+//					if ( r[2]==1) {
+//						String longname = oformat.long_name()!=null?oformat.long_name().getString():"";
+//						if (longname.toLowerCase().indexOf("raw ")!=-1)continue;
+//						String extensions = oformat.extensions()!=null?oformat.extensions().getString():" ";
+//						compatExt.addAll(Arrays.asList(extensions.split(",")));
+//					}
+//						
+//				}
+//				if (compatExt.size()==0) suggestedExtension=defaultFormatForGuess;
+//				else {
+//					if (compatExt.contains(customVEnc)) {
+//						suggestedExtension = customVEnc;
+//					} else {
+//						Iterator<String> iter =  compatExt.iterator();
+//						suggestedExtension = iter.next();
+//						for (String ext : preferredExtensions){
+//							if (compatExt.contains(ext)) {
+//								suggestedExtension = ext;
+//								break;
+//							}
+//						}
+//					}
+//				}
+//				
+//			}
+//		}
+		
+		String suggestedFileName = imp.getTitle()+"_stack_export";
+		if (addTimeStamp) { //add_timestamp
+			LocalDateTime current = LocalDateTime.now();
+		    DateTimeFormatter format =
+		      DateTimeFormatter.ofPattern("dd-MM-yyyy-HH-mm-ss"); 
+		   String timestamp =current.format(format); 
+		   suggestedFileName += "-"+timestamp;	
+		
+		   if (IJ.isMacro()) {
+				String macroOptions = Macro.getOptions();
+				if (macroOptions!=null) {
+					String path = Macro.getValue(macroOptions, "save", "");
+					if (!path.isEmpty()) {
+						String extension = getFileExtension(path);
+						String newpath = path.substring(0, path.lastIndexOf(extension)-1)+"-"+timestamp+"."+extension;
+						Macro.setOptions(macroOptions.substring(0, macroOptions.indexOf(path)) + newpath + macroOptions.substring(macroOptions.indexOf(path)+path.length()));
+					}
+				}
+			}
+		}
+		
+		
+		
+		SaveDialog	sd = new SaveDialog("Save Video File As", suggestedFileName, "." + suggestedExtension);	
+		String fileName = sd.getFileName();
+		if (fileName == null) return false;
+		String fileDir = sd.getDirectory();
+		filePath = fileDir + fileName;
+		String selectedExtension = getFileExtension(filePath);
+		
+		if (!selectedExtension.equals(suggestedExtension) && 
+				av_guess_format(selectedExtension, filePath, null) == null) {
+			IJ.showMessage("Error", "Not supported output format [" + selectedExtension.toUpperCase() + "]");
+			return false;
+		}
+		
+		
+		
+		if(!IsEncoderCompatible(suggestedExtension, codecCode, customVEnc)){
+			IJ.showMessage("Error", "Selected encoder " + codec + " cannot be used with the selected output format ["+suggestedExtension.toUpperCase()+"]");
+			return false;
+		}
+		
+		vFormat = selectedExtension;
+		
+		logLevel=gd.getNextChoiceIndex();
+		av_log_set_level(logLevCodes[logLevel]);
+		
+		//save settings 
+		if (!IJ.isMacro()){
+			Prefs.set("ffmpegvideoimport.savedFormatIndex", formatCode);
+			Prefs.set("ffmpegvideoimport.savedEncoderIndex", codecCode);
+			Prefs.set("ffmpegvideoimport.savedCustomEncoder", customVEnc);
+			Prefs.set("ffmpegvideoimport.savedShowProgressOption", progressByStackUpdate);
+			Prefs.set("ffmpegvideoimport.savedTimeStampOption", addTimeStamp);
+		}
+
+		IJ.register(this.getClass());
+		return true;
+	}
+	
+	
+	public ImageStack getStack() {
+		return stack;
+	}
+	
+	/**Suggests file extension for a combination of format (formatCode)
+	 * and encoder (codecCode or customVEnc). Returns empty string if
+	 * the extension should be defined by later, at save dialog.  
+	 * @param formatCode
+	 * @param codecCode
+	 * @param customVEnc
+	 * @return
+	 */
+	String getSuggestedExtension(int formatCode, int codecCode, String customVEnc) {
+		String suggestedExtension="";
+		if (formatCode>0) {
+			if (!formats[formatCode].equals(formatByExt)) suggestedExtension = formats[formatCode].toLowerCase();
+		}
 		else {
 			suggestedExtension = defaultFormats.get(encoders[codecCode]);
 			if (encCodes[codecCode]==-1) {
@@ -619,65 +740,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 				
 			}
 		}
-		
-		String suggestedFileName = imp.getTitle()+"_stack_export";
-		if (addTimeStamp) { //add_timestamp
-			LocalDateTime current = LocalDateTime.now();
-		    DateTimeFormatter format =
-		      DateTimeFormatter.ofPattern("dd-MM-yyyy-HH-mm-ss"); 
-		   String timestamp =current.format(format); 
-		   suggestedFileName += "-"+timestamp;	
-		
-		   if (IJ.isMacro()) {
-				String macroOptions = Macro.getOptions();
-				if (macroOptions!=null) {
-					String path = Macro.getValue(macroOptions, "save", "");
-					if (!path.isEmpty()) {
-						String extension = getFileExtension(path);
-						String newpath = path.substring(0, path.lastIndexOf(extension)-1)+"-"+timestamp+"."+extension;
-						Macro.setOptions(macroOptions.substring(0, macroOptions.indexOf(path)) + newpath + macroOptions.substring(macroOptions.indexOf(path)+path.length()));
-					}
-				}
-			}
-		}
-		
-		
-		
-		SaveDialog	sd = new SaveDialog("Save Video File As", suggestedFileName, "." + suggestedExtension);	
-		String fileName = sd.getFileName();
-		if (fileName == null) return false;
-		String fileDir = sd.getDirectory();
-		filePath = fileDir + fileName;
-		String selectedExtension = getFileExtension(filePath);
-		
-		if (!selectedExtension.equals(suggestedExtension) && 
-				av_guess_format(selectedExtension, filePath, null) == null) {
-			IJ.showMessage("Error", "Selected format is not supported");
-			return false;
-		}
-		
-		if ((encCodes[codecCode]<0 && !IsEncoderCompatible(selectedExtension, customVEnc)) ||
-				(encCodes[codecCode]>0 && !IsEncoderCompatible(selectedExtension, encCodes[codecCode]))) {
-			IJ.showMessage("Error", "Selected encoder cannot be used with the selected output format");
-			return false;
-		}
-		
-		vFormat = selectedExtension;
-		
-		logLevel=gd.getNextChoiceIndex();
-		av_log_set_level(logLevCodes[logLevel]);
-		
-		//save settings 
-		if (!IJ.isMacro()){
-			Prefs.set("ffmpegvideoimport.savedFormatIndex", formatCode);
-			Prefs.set("ffmpegvideoimport.savedEncoderIndex", codecCode);
-			Prefs.set("ffmpegvideoimport.savedCustomEncoder", customVEnc);
-			Prefs.set("ffmpegvideoimport.savedShowProgressOption", progressByStackUpdate);
-			Prefs.set("ffmpegvideoimport.savedTimeStampOption", addTimeStamp);
-		}
-
-		IJ.register(this.getClass());
-		return true;
+		return suggestedExtension;
 	}
 	
 	/** Encodes a stack into a video with default and specified parameters 
@@ -738,7 +801,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		    return extension.toLowerCase();
 	}
 	
-	private int[] EncoderFromatCompliance(int enc_id, AVOutputFormat format){
+	static int[] EncoderFromatCompliance(int enc_id, AVOutputFormat format){
 		
 		return new int[]{avformat_query_codec(format, enc_id, FF_COMPLIANCE_VERY_STRICT),
 				avformat_query_codec(format, enc_id, FF_COMPLIANCE_STRICT),
@@ -747,7 +810,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 				avformat_query_codec(format, enc_id, FF_COMPLIANCE_EXPERIMENTAL)};
 	}
 	
-	private boolean IsEncoderCompatible(String format, int enc_id) {
+	static boolean IsEncoderCompatible(String format, int enc_id) {
 		AVOutputFormat oformat = av_guess_format(format, "video."+format, null);
 		if (oformat==null) return false;
 		int compatibility = EncoderFromatCompliance(enc_id, oformat)[2];//avformat_query_codec(oformat, enc_id, FF_COMPLIANCE_NORMAL);
@@ -755,9 +818,25 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		return 0 != compatibility;
 	}
 	
-	private boolean IsEncoderCompatible(String format, String enc) {
+	static boolean IsEncoderCompatible(String format, String enc) {
 		AVCodec codec = avcodec_find_encoder_by_name(enc);
 		return codec != null && IsEncoderCompatible(format , codec.id());
+	}
+	
+	static boolean IsEncoderCompatible(String format, int codecCode, String customVEnc) {
+		if ((encCodes[codecCode]<0 && !IsEncoderCompatible(format, customVEnc)) ||
+				(encCodes[codecCode]>0 && !IsEncoderCompatible(format, encCodes[codecCode]))) {
+			return false;
+		}
+		return true;
+	}
+	
+	static boolean IsCodecSupported(int codecCode, String customVEnc) {
+		if ((encCodes[codecCode]<0 && avcodec_find_encoder_by_name(customVEnc) == null) ||
+				(encCodes[codecCode]>0 && avcodec_find_encoder(encCodes[codecCode]) == null)) {
+				return false;
+			}
+		return true;
 	}
 
 	/** Initializes and starts FFmpegFrameRecorder with default settings:
@@ -1092,9 +1171,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		}
 	}
 	
-	public void displayDialog(boolean displayDialog) {
-		this.displayDialog = displayDialog;
-	}
+	
 
 	public double getFrameRate() {
 		return fps;
@@ -1120,4 +1197,92 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		close();
 		super.finalize();
 	}
+
+	
+}
+
+class SetupDialog  extends NonBlockingGenericDialog {
+	
+	public Choice codecChoice;
+	public Choice formatChoice;
+	public TextField customEncField;
+	public TextField firstSliceField;
+	public TextField lastSliceField;
+	FFmpeg_FrameRecorder recorder;
+	
+	public SetupDialog(String title, FFmpeg_FrameRecorder recorder) {
+		super(title);
+		this.recorder = recorder;
+	}
+	
+	public void actionPerformed(ActionEvent e) {
+		Object source = e.getSource();
+		if (Macro.getOptions()==null && componentsAreSet() && source==getButtons()[0]) {
+			int firstSlice = 0, lastSlice = 0;
+			Double d = getValue(firstSliceField.getText());
+			if (d!=null)
+				firstSlice = (int)Math.abs(d.doubleValue());
+			else {
+				IJ.showMessage("Error", "Incorrect number format of the first slice");
+				return;
+			}
+			
+			d = getValue(lastSliceField.getText());
+			if (d!=null)
+				lastSlice = (int)Math.abs(d.doubleValue());
+			else {
+				IJ.showMessage("Error", "Incorrect number format of the last slice");
+				return;
+			}
+			
+			int stackSize = recorder.getStack().getSize();
+			if (firstSlice<1) firstSlice=1;
+			if (lastSlice>stackSize) lastSlice=stackSize;
+			if (lastSlice<=firstSlice) {
+				IJ.showMessage("Error", "Incorrect slice range (the last should be greater than the first)");
+				return;
+			}
+			int formatCode = formatChoice.getSelectedIndex();
+			int codecCode= codecChoice.getSelectedIndex();
+			String customVEnc = customEncField.getText().trim().toLowerCase(Locale.US);
+			
+			
+			if (FFmpeg_FrameRecorder.encCodes[codecCode]<0 && (customVEnc==null || customVEnc.isEmpty())) {
+				IJ.showMessage("Error", "Custom encoder not specified");
+				return;
+			}
+			
+			String codec = "";
+			if(FFmpeg_FrameRecorder.encCodes[codecCode]!=0) 
+				codec = "[" + (FFmpeg_FrameRecorder.encCodes[codecCode]<0? 
+						customVEnc:avcodec_find_encoder(FFmpeg_FrameRecorder.encCodes[codecCode]).name().getString()).toUpperCase()+"]";
+
+
+			if(!FFmpeg_FrameRecorder.IsCodecSupported(codecCode, customVEnc)) {
+				IJ.showMessage("Error", "Selected encoder " + codec + " is not supported");
+				return;
+			}
+			
+			if (!FFmpeg_FrameRecorder.formats[formatCode].equals(FFmpeg_FrameRecorder.formatByExt)) {
+				
+				String suggestedExtension = recorder.getSuggestedExtension(formatCode, codecCode, customVEnc);
+				if(!FFmpeg_FrameRecorder.IsEncoderCompatible(suggestedExtension, codecCode, customVEnc)){
+					IJ.showMessage("Error", "Selected encoder " + codec + " cannot be used with the selected output format ["+suggestedExtension.toUpperCase()+"]");
+					return;
+				}
+			}
+			
+			
+		}
+		super.actionPerformed(e);
+	}
+	
+	boolean componentsAreSet() {
+		return codecChoice!=null &&
+				formatChoice!=null && 
+				customEncField!=null && 
+				firstSliceField!=null && 
+				lastSliceField!=null;
+	}
+	
 }
