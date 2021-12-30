@@ -15,6 +15,7 @@ import ij.Macro;
 import ij.Menus;
 import ij.Prefs;
 import ij.gui.NonBlockingGenericDialog;
+import ij.gui.Toolbar;
 import ij.io.SaveDialog;
 import ij.plugin.CanvasResizer;
 import ij.plugin.filter.PlugInFilter;
@@ -60,6 +61,7 @@ import org.bytedeco.javacv.Java2DFrameConverter;
 import static org.bytedeco.ffmpeg.global.avutil.*;
 import static org.bytedeco.ffmpeg.global.avformat.*;
 import static org.bytedeco.ffmpeg.global.avcodec.*;
+import static org.bytedeco.ffmpeg.global.swscale.*;
 
 import org.bytedeco.ffmpeg.avcodec.AVCodec;
 import org.bytedeco.ffmpeg.avformat.AVOutputFormat;
@@ -95,8 +97,8 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	
 	private String filePath;
 	private int firstSlice, lastSlice;
-	private int frameWidth, videoWidth, desiredWidth;
-	private int frameHeight, videoHeight, frameHeightBorder=0;
+	private int frameWidth, videoWidth, desiredWidth, frameWidthBorder=0;
+	private int frameHeight, videoHeight, frameHeightBorder=0; 
 	private int bitRate;
 	private double fps=25;
 	private int formatCode=0;
@@ -775,9 +777,14 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		int start = firstSlice<0?1:firstSlice;
 		int finish = lastSlice>stack.getSize()?stack.getSize():lastSlice;
 
+		int lastUpdate = 1; int recLength = finish - start + 1;
 		for (int i=start; i<finish+1; i++) {
 			EncodeFrame(stack.getProcessor(i));
-			IJ.showProgress((i-start+1.0)/(finish-start+1.0));
+			int update = (i-start+1) * 20 / recLength;
+			if(update > lastUpdate) {
+				IJ.showProgress(update * 5);
+				lastUpdate = update;
+			}
 			if (progressByStackUpdate) imp.setSlice(i);
 		}
 
@@ -1004,17 +1011,31 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 			return false;
 		}
 		if (srcWidth<8 || srcHeght<8){
-			IJ.log("Incorrect source dimentions");
+			IJ.log("Incorrect source dimensions");
 			initialized = false;
 			return false;
 		}
+		
 		frameWidth = srcWidth;
 		frameHeight = srcHeght;
-		videoWidth=vWidth + (vWidth%8==0?0:(8-vWidth%8));
-		int videoHeightProp = (frameHeight*videoWidth)/frameWidth;
-		int videoHeightBorder = videoHeightProp%8==0?0:(8-videoHeightProp%8);
-		videoHeight = videoHeightProp + videoHeightBorder;
-		frameHeightBorder = (videoHeightBorder*frameWidth)/videoWidth;
+		videoWidth = vWidth + (vWidth%8==0?0:(8-vWidth%8));
+		
+//		frameWidthBorder = 0;
+//		frameHeightBorder = 0;
+//		videoWidth = frameWidth;
+//		videoHeight = frameHeight;
+		
+		if (vWidth!=srcWidth) {
+			int videoHeightProp = (frameHeight*videoWidth)/frameWidth;
+			int videoHeightBorder = videoHeightProp%8==0?0:(8-videoHeightProp%8);
+			videoHeight = videoHeightProp + videoHeightBorder;
+			frameHeightBorder = (videoHeightBorder*frameWidth)/videoWidth;
+			frameWidthBorder = 0;
+		} else {
+			frameWidthBorder = videoWidth - vWidth;
+			frameHeightBorder = frameHeight%8==0?0:(8-frameHeight%8);
+			videoHeight = frameHeight + frameHeightBorder;
+		}
 		if (videoHeight<8){
 			IJ.log("Incorrect output height");
 			initialized = false;
@@ -1122,6 +1143,8 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		if (vKeys!=null && vOptions!=null && !vKeys.isEmpty() && vKeys.size()==vOptions.size()) 
 			for (int i=0; i<vKeys.size(); i++) recorder.setVideoOption(vKeys.get(i), vOptions.get(i));
 		
+		recorder.setImageScalingFlags(SWS_SPLINE);
+		
 		try {
 			recorder.start();
 		} catch (Exception e2) {
@@ -1146,7 +1169,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	 * Should be called at the end of record. 
 	 */
 	public void StopRecorder() throws Exception {
-		recorder.close();
+		recorder.stop();//.close();
 		initialized = false;
 	}
 	
@@ -1157,10 +1180,12 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	 *  @param ip ImageProcessor of the image to encode 
 	 */
 	public void EncodeFrame(ImageProcessor ip){
-		if (frameHeightBorder!=0) frame_ARGB = 
+		if (frameHeightBorder!=0 || frameWidthBorder!=0) frame_ARGB = 
 			converter.convert(
-				((new CanvasResizer()).expandImage(ip, frameWidth, frameHeight+frameHeightBorder, 
-											0, frameHeightBorder/2)).convertToRGB().getBufferedImage());
+//				((new CanvasResizer()).expandImage(ip, frameWidth, frameHeight+frameHeightBorder, 
+//											0, frameHeightBorder/2)).convertToRGB().getBufferedImage());
+					expandImage(ip, frameWidth + frameWidthBorder, frameHeight + frameHeightBorder, 
+							frameWidthBorder/2, frameHeightBorder/2).convertToRGB().getBufferedImage());
 		else frame_ARGB = converter.convert(ip.convertToRGB().getBufferedImage());
 		
 		try {
@@ -1169,6 +1194,14 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		} catch (Exception e1) {
 			e1.printStackTrace();
 		}
+	}
+	
+	private ImageProcessor expandImage(ImageProcessor ipOld, int wNew, int hNew, int xOff, int yOff) {
+		ImageProcessor ipNew = ipOld.createProcessor(wNew, hNew);
+		ipNew.setValue(0.0);
+		ipNew.fill();
+		ipNew.insert(ipOld, xOff, yOff);
+		return ipNew;
 	}
 	
 	
