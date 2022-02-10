@@ -66,6 +66,9 @@ import static org.bytedeco.ffmpeg.global.swscale.*;
 import org.bytedeco.ffmpeg.avcodec.AVCodec;
 import org.bytedeco.ffmpeg.avformat.AVOutputFormat;
 import org.bytedeco.javacpp.IntPointer;
+import org.bytedeco.javacpp.Pointer;
+import org.bytedeco.javacpp.PointerPointer;
+
 import static org.bytedeco.ffmpeg.avcodec.AVCodecContext.*;
 
 
@@ -159,7 +162,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		FFmpegLogCallback.set();
 		av_log_set_level(AV_LOG_QUIET);
 		fillFormatsAndEncoders();
-		
+				
 		stack = imp.getStack();
 		ip.convertToRGB();
 		frameWidth = imp.getWidth();
@@ -178,7 +181,8 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	        ffmpegFormats=new ArrayList<AVOutputFormat>();
 	        
 	        AVCodec ffmpegCodec = null;
-	        while ((ffmpegCodec = av_codec_next(ffmpegCodec))!=null)
+	        Pointer citer = new Pointer((Pointer)null);
+	        while ((ffmpegCodec = av_codec_iterate(citer))!=null)
 	        {
 	            // try to get an encoder from the system
 	        	AVCodec encoder = avcodec_find_encoder(ffmpegCodec.id());
@@ -190,7 +194,8 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	        ffmpegEncoders = new ArrayList<AVCodec>(new LinkedHashSet<AVCodec>(ffmpegEncoders));
 	        
 			AVOutputFormat ffmpegFormat = null;
-	         while ((ffmpegFormat = av_oformat_next(ffmpegFormat))!=null)
+			Pointer miter = new Pointer((Pointer)null);
+	        while ((ffmpegFormat = av_muxer_iterate(miter))!=null)
 	        {
 	        	 if (ffmpegFormat.video_codec()!=0) {
 	        		for(AVCodec enc : ffmpegEncoders){
