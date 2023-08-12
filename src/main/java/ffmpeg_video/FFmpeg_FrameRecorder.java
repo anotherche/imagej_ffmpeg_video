@@ -20,6 +20,7 @@ import ij.io.SaveDialog;
 import ij.plugin.CanvasResizer;
 import ij.plugin.filter.PlugInFilter;
 import ij.process.ImageProcessor;
+import net.imagej.updater.CommandLine;
 import ij.plugin.frame.Recorder;
 
 import java.awt.Button;
@@ -45,6 +46,8 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import javax.swing.JOptionPane;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.table.DefaultTableModel;
@@ -58,6 +61,8 @@ import org.bytedeco.javacv.Frame;
 //import org.bytedeco.javacv.FrameRecorder;
 //import org.bytedeco.javacv.FrameRecorder.Exception;
 import org.bytedeco.javacv.Java2DFrameConverter;
+import org.scijava.util.AppUtils;
+
 import static org.bytedeco.ffmpeg.global.avutil.*;
 import static org.bytedeco.ffmpeg.global.avformat.*;
 import static org.bytedeco.ffmpeg.global.avcodec.*;
@@ -90,7 +95,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	private static final int[] logLevCodes = new int[] {AV_LOG_QUIET, AV_LOG_PANIC, AV_LOG_FATAL, AV_LOG_ERROR,
 														AV_LOG_WARNING, AV_LOG_INFO, AV_LOG_VERBOSE, AV_LOG_DEBUG};
 	
-	private static final String pluginVersion = "0.4.0";
+	private static final String pluginVersion = "0.4.3";
 	
 	
 	
@@ -157,8 +162,8 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 //		}
 		
 		if (!CheckJavaCV("1.5", true, "ffmpeg")) return;
-		System.setProperty("org.bytedeco.javacpp.logger", "slf4j"); 
-		System.setProperty("org.bytedeco.javacpp.logger.debug", "true"); 
+		//System.setProperty("org.bytedeco.javacpp.logger", "slf4j"); 
+		//System.setProperty("org.bytedeco.javacpp.logger.debug", "true"); 
 		FFmpegLogCallback.set();
 		av_log_set_level(AV_LOG_QUIET);
 		fillFormatsAndEncoders();
@@ -216,47 +221,64 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		return pluginVersion;
 	}
 	
-	private boolean CheckJavaCV(String version, boolean treatAsMinVer, String components) {
+private boolean CheckJavaCV(String version, boolean treatAsMinVer, String components) {
+		
 		String javaCVInstallCommand = "Install JavaCV libraries";
     	Hashtable table = Menus.getCommands();
 		String javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
 		if (javaCVInstallClassName==null) {
-			IJ.showMessage("JavaCV check", "JavaCV Installer not found.\n"
-					+"Please install it from from JavaCVInstaller update site:\n"
-					+"https://sites.imagej.net/JavaCVInstaller/");
+//			IJ.showMessage("JavaCV check", "JavaCV Installer not found.\n"
+//					+"Please install it from from JavaCVInstaller update site:\n"
+//					+"https://sites.imagej.net/JavaCVInstaller/");
+			
+			int result = JOptionPane.showConfirmDialog(null,
+					"<html><h2>JavaCV Installer not found.</h2>"
+							+ "<br>Please install it from from JavaCVInstaller update site:"
+							+ "<br>https://sites.imagej.net/JavaCVInstaller/"
+							+ "<br>Do you whant it to be installed now for you?"
+							+ "<br><i>you need to restart ImageJ after the install</i></html>",
+							"JavaCV check",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+			if (result == JOptionPane.YES_OPTION) {
+				net.imagej.updater.CommandLine updCmd = new net.imagej.updater.CommandLine(AppUtils.getBaseDirectory("ij.dir", CommandLine.class, "updater"), 80);
+				updCmd.addOrEditUploadSite("JavaCVInstaller", "https://sites.imagej.net/JavaCVInstaller/", null, null, false);
+				net.imagej.updater.CommandLine updCmd2 = new net.imagej.updater.CommandLine(AppUtils.getBaseDirectory("ij.dir", CommandLine.class, "updater"), 80);
+				updCmd2.update(Arrays.asList("plugins/JavaCV_Installer/JavaCV_Installer.jar"));
+				IJ.run("Refresh Menus");
+				table = Menus.getCommands();
+				javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
+				if (javaCVInstallClassName==null) {
+					IJ.showMessage("JavaCV check", "Failed to install JavaCV Installer plugin.\nPlease install it manually.");
+				}
+			}
 			return false;
 		}
+		
 		String installerCommand = "version="
 				+ version
 				+ " select_installation_option=[Install missing] "
 				+ (treatAsMinVer?"treat_selected_version_as_minimal_required ":"")
 				+ components;
 
-		//SR 2021-08-05 begin
 		boolean saveRecorder = Recorder.record;		//save state of the macro Recorder
 		Recorder.record = false;					//disable the macro Recorder to avoid the JavaCV installer plugin being recorded instead of this plugin
 		String saveMacroOptions = Macro.getOptions();
 		IJ.run("Install JavaCV libraries", installerCommand);
 		if (saveMacroOptions != null) Macro.setOptions(saveMacroOptions);
 		Recorder.record = saveRecorder;				//restore the state of the macro Recorder
-		//SR 2021-08-05 end
-
-		
+				
 		String result = Prefs.get("javacv.install_result", "");
 		String launcherResult = Prefs.get("javacv.install_result_launcher", "");
-		
 		if (!(result.equalsIgnoreCase("success") && launcherResult.equalsIgnoreCase("success"))) {
-//			IJ.log("JavaCV installation state. Prerequisites: "+launcherResult+" JavaCV: "+ result);
 			if(result.indexOf("restart")>-1 || launcherResult.indexOf("restart")>-1) {
 				IJ.log("Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
-//				IJ.showMessage("FFmpeg Viseo Import/Export", "Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
 				return false;
 			} else {
-				IJ.log("JavaCV installation failed for above reason. Trying to use JavaCV as is...");
+				IJ.log("JavaCV installation failed. Trying to use JavaCV as is...");
 				return true;
 			}
 		}
-		//IJ.log("JavaCV installation state. Prerequisites: "+launcherResult+" JavaCV: "+ result);
 		return true;
 	}
 	

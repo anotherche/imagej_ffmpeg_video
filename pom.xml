@@ -8,13 +8,13 @@
 	<parent>
 		<groupId>org.scijava</groupId>
 		<artifactId>pom-scijava</artifactId>
-		<version>29.2.1</version>
+		<version>36.0.0</version>
 	<relativePath />
 	</parent>
 
 	<groupId>anotherche.plugins.imagej</groupId> 
     <artifactId>FFmpeg_Video</artifactId>
-    <version>0.4.2</version>
+    <version>0.5.0</version>
 	
 	<name>FFmpeg_Video.jar</name>
 	<description>Two ImageJ plugins for import and export of compressed video using javacv and ffmpeg library .
@@ -92,7 +92,6 @@
 		<license.licenseName>gpl</license.licenseName>
 		<license.copyrightOwners>ISSCM SB RAS</license.copyrightOwners>
 
-		<scijava.app.subdirectory>plugins\FFmpeg_Video</scijava.app.subdirectory>
 	</properties>
 	
   <dependencies>
@@ -280,14 +279,22 @@
   			<groupId>org.bytedeco</groupId>
   			<artifactId>opencv</artifactId>
   		</exclusion>
+  		<exclusion>
+  			<groupId>org.openjfx</groupId>
+  			<artifactId>javafx-graphics</artifactId>
+  		</exclusion>
   	</exclusions>
-  	<version>1.5.7</version>
+  	<version>1.5.8</version>
   </dependency>
   <!-- Optional GPL builds with (almost) everything enabled -->
         <dependency>
             <groupId>org.bytedeco</groupId>
             <artifactId>ffmpeg-platform-gpl</artifactId>
-            <version>5.0-1.5.7</version>
+            <version>5.1.2-1.5.8</version>
+        </dependency>
+        <dependency>
+        	<groupId>net.imagej</groupId>
+        	<artifactId>imagej-updater</artifactId>
         </dependency>
   </dependencies>
   
@@ -307,7 +314,9 @@
 	              <goal>populate-app</goal>
 	            </goals>
 	            <configuration>
-	             
+				  <scijava.app.subdirectory>plugins/FFmpeg_Video</scijava.app.subdirectory>
+	              <ignoreDependencies>true</ignoreDependencies>
+	              <deleteOtherVersionsPolicy>never</deleteOtherVersionsPolicy>	             
 	              
 <!-- 	              <deleteOtherVersionsPolicy>never</deleteOtherVersionsPolicy> -->
  					
