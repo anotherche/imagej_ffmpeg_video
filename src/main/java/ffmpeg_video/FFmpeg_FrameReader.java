@@ -121,7 +121,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		
 		
 		
-		if (!CheckJavaCV("1.5", true, "ffmpeg")) return;
+		if (!checkJavaCV("1.5", true, "ffmpeg")) return;
 		//System.setProperty("org.bytedeco.javacpp.logger", "slf4j"); 
 		//System.setProperty("org.bytedeco.javacpp.logger.debug", "true"); 
 		FFmpegLogCallback.set();
@@ -171,7 +171,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		return pluginVersion;
 	}
 	
-private boolean CheckJavaCV(String version, boolean treatAsMinVer, String components) {
+private boolean checkJavaCV(String version, boolean treatAsMinVer, String components) {
 		
 		String javaCVInstallCommand = "Install JavaCV libraries";
     	Hashtable table = Menus.getCommands();
@@ -236,7 +236,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	
 	/** Initializes FFmpegFrameGrabber that reads video frames 
 	 * from a video file specified by <code>path</code> into stack */
-	private boolean InitImport(String path) {
+	private boolean initImport(String path) {
 		
 		importInitiated = false;
 		fileDirectory = "";
@@ -335,7 +335,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 * @param convertToGray converts color frames into 8bit gray if <code>true</code>
 	 * @param flipVertical flips frames in vertical direction if <code>true</code> */
 	public ImageStack makeStack (String videoPath, int first, int last, int decimateBy, boolean convertToGray, boolean flipVertical){
-		if (InitImport(videoPath)) {
+		if (initImport(videoPath)) {
 			return makeStack (first, last, decimateBy, convertToGray, flipVertical);
 		}
 		return null;
@@ -348,7 +348,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 * @param last the ending video frame to import 
 	 * (same agreement as for the <b>first</b>) */
 	public ImageStack makeStack (String videoPath, int first, int last){
-		if (InitImport(videoPath)) {
+		if (initImport(videoPath)) {
 			return makeStack (first, last, 1, false, false);
 		}
 		return null;
@@ -357,7 +357,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	/** Returns virtual stack into which frames are imported from a videofile specified by <b>videoPath</b>.  */ 
 	 
 	public ImageStack makeStack (String videoPath){
-		if (InitImport(videoPath)) {
+		if (initImport(videoPath)) {
 			return makeStack (0, -1, 1, false, false);
 		}
 		return null;
@@ -376,7 +376,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 * @param flipVertical flips frames in vertical direction if <code>true</code> 
 	 * @param split_RGB slits RGB frames into three channels if <code>true</code> */
 	public ImageStack makeHyperStack (String videoPath, int first, int last, int nSlices, int nFrames, String order, boolean convertToGray, boolean flipVertical, boolean split_RGB){
-		if (InitImport(videoPath)) {
+		if (initImport(videoPath)) {
 			convertToHS = true;
 			splitRGB=split_RGB;
 			int intOrder = CZT;
@@ -429,7 +429,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		}
 		
 
-		if (InitImport(path)) {
+		if (initImport(path)) {
 			IJ.log("--------------");
 			IJ.log("File name: "+fileName);
 			IJ.log("Estimated number of frames = "+nb_frames_estimated);

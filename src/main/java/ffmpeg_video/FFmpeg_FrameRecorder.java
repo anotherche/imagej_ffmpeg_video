@@ -161,7 +161,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 //			IJ.showMessage("FFmpeg Viseo Import/Export", "Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
 //		}
 		
-		if (!CheckJavaCV("1.5", true, "ffmpeg")) return;
+		if (!checkJavaCV("1.5", true, "ffmpeg")) return;
 		//System.setProperty("org.bytedeco.javacpp.logger", "slf4j"); 
 		//System.setProperty("org.bytedeco.javacpp.logger.debug", "true"); 
 		FFmpegLogCallback.set();
@@ -175,7 +175,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		if (!showDialog())					//ask for parameters
 			return;
 		
-		RecordVideo(filePath, imp, desiredWidth, fps, bitRate, firstSlice, lastSlice);
+		recordVideo(filePath, imp, desiredWidth, fps, bitRate, firstSlice, lastSlice);
 	}
 	
 	
@@ -221,7 +221,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		return pluginVersion;
 	}
 	
-private boolean CheckJavaCV(String version, boolean treatAsMinVer, String components) {
+private boolean checkJavaCV(String version, boolean treatAsMinVer, String components) {
 		
 		String javaCVInstallCommand = "Install JavaCV libraries";
     	Hashtable table = Menus.getCommands();
@@ -282,7 +282,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		return true;
 	}
 	
-	private String ComposeEncoderOptions() {
+	private String composeEncoderOptions() {
 		DefaultTableModel model = vcodecOptTab == null?null:(DefaultTableModel) vcodecOptTab.getModel();
 		String optLine="";
 		vKeys = null;
@@ -315,7 +315,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		return optLine;
 	}
 	
-	private void DecomposeEncoderOptions(String optLine) {
+	private void decomposeEncoderOptions(String optLine) {
 		String[] keyOptPairs = optLine.split(";");
 		vKeys = null;
 		vOptions = null;
@@ -502,7 +502,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 						IJ.log("-------------------------------------------------------------------------");
 						int id = enc.id();
 						for(AVOutputFormat oformat : ffmpegFormats){
-							int[] r = EncoderFromatCompliance(id, oformat);
+							int[] r = getEncoderFromatCompliance(id, oformat);
 
 							if ( r[2]==1) {
 								String name = oformat.name()!=null?oformat.name().getString():" ";
@@ -592,7 +592,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		gd.setSmartRecording(true); //return to smart recording mode
 		
 		if (!IJ.isMacro()) {
-			String optLine = ComposeEncoderOptions();//encOptField.setText(ComposeEncoderOptions());
+			String optLine = composeEncoderOptions();//encOptField.setText(ComposeEncoderOptions());
 			if (Recorder.record) {
 				if (!optLine.isEmpty()) Recorder.recordOption("additional_encoder_options", optLine);
 			}
@@ -601,7 +601,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 			String additionalEncOpt = "";
 			if (macroOptions!=null) 
 				additionalEncOpt = Macro.getValue(macroOptions, "additional_encoder_options", "");
-			DecomposeEncoderOptions(additionalEncOpt);
+			decomposeEncoderOptions(additionalEncOpt);
 		}
 		
 		progressByStackUpdate = gd.getNextBoolean();
@@ -610,7 +610,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		String codec = "";
 		if(encCodes[codecCode]!=0) codec = "[" + (encCodes[codecCode]<0? customVEnc:avcodec_find_encoder(encCodes[codecCode]).name().getString()).toUpperCase()+"]";
 
-		if(!IsCodecSupported(codecCode, customVEnc)) {
+		if(!isCodecSupported(codecCode, customVEnc)) {
 			IJ.showMessage("Error", "Selected encoder " + codec + " is not supported");
 			return false;
 		}
@@ -742,7 +742,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 				AVCodec enc = avcodec_find_encoder_by_name(customVEnc);
 				int id = enc.id();
 				for(AVOutputFormat oformat : ffmpegFormats){
-					int[] r = EncoderFromatCompliance(id, oformat);
+					int[] r = getEncoderFromatCompliance(id, oformat);
 					if ( r[2]==1) {
 						String longname = oformat.long_name()!=null?oformat.long_name().getString():"";
 						if (longname.toLowerCase().indexOf("raw ")!=-1)continue;
@@ -781,7 +781,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *   @param path the path of the resulting video file
 	 *    
 	 */
-	public void RecordVideo(String path, ImagePlus imp, int desiredWidth, 
+	public void recordVideo(String path, ImagePlus imp, int desiredWidth, 
 			double frameRate, int bRate, int firstSlice, int lastSlice){
 		if (imp==null) return;
 
@@ -798,7 +798,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 			return;
 		}
 
-		if (!InitRecorder(path, imp.getWidth(), imp.getHeight(), 
+		if (!initRecorder(path, imp.getWidth(), imp.getHeight(), 
 				desiredWidth, frameRate, bRate, vFormat, codecCode, customVEnc, vKeys, vOptions)) return;
 
 		int start = firstSlice<0?1:firstSlice;
@@ -806,7 +806,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 
 		int lastUpdate = 1; int recLength = finish - start + 1;
 		for (int i=start; i<finish+1; i++) {
-			EncodeFrame(stack.getProcessor(i));
+			encodeFrame(stack.getProcessor(i));
 			int update = (i-start+1) * 20 / recLength;
 			if(update > lastUpdate) {
 				IJ.showProgress(update * 5);
@@ -816,7 +816,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		}
 
 		try {
-			StopRecorder();
+			stopRecorder();
 		} catch (Exception e) {
 			e.printStackTrace();
 		}
@@ -835,7 +835,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 		    return extension.toLowerCase();
 	}
 	
-	static int[] EncoderFromatCompliance(int enc_id, AVOutputFormat format){
+	static int[] getEncoderFromatCompliance(int enc_id, AVOutputFormat format){
 		
 		return new int[]{avformat_query_codec(format, enc_id, FF_COMPLIANCE_VERY_STRICT),
 				avformat_query_codec(format, enc_id, FF_COMPLIANCE_STRICT),
@@ -844,28 +844,28 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 				avformat_query_codec(format, enc_id, FF_COMPLIANCE_EXPERIMENTAL)};
 	}
 	
-	static boolean IsEncoderCompatible(String format, int enc_id) {
+	static boolean isEncoderCompatible(String format, int enc_id) {
 		AVOutputFormat oformat = av_guess_format(format, "video."+format, null);
 		if (oformat==null) return false;
-		int compatibility = EncoderFromatCompliance(enc_id, oformat)[2];//avformat_query_codec(oformat, enc_id, FF_COMPLIANCE_NORMAL);
+		int compatibility = getEncoderFromatCompliance(enc_id, oformat)[2];//avformat_query_codec(oformat, enc_id, FF_COMPLIANCE_NORMAL);
 		if (compatibility<0) IJ.log("Warning: Format/encoder compatibility is unknown.");
 		return 0 != compatibility;
 	}
 	
-	static boolean IsEncoderCompatible(String format, String enc) {
+	static boolean isEncoderCompatible(String format, String enc) {
 		AVCodec codec = avcodec_find_encoder_by_name(enc);
-		return codec != null && IsEncoderCompatible(format , codec.id());
+		return codec != null && isEncoderCompatible(format , codec.id());
 	}
 	
 	static boolean IsEncoderCompatible(String format, int codecCode, String customVEnc) {
-		if ((encCodes[codecCode]<0 && !IsEncoderCompatible(format, customVEnc)) ||
-				(encCodes[codecCode]>0 && !IsEncoderCompatible(format, encCodes[codecCode]))) {
+		if ((encCodes[codecCode]<0 && !isEncoderCompatible(format, customVEnc)) ||
+				(encCodes[codecCode]>0 && !isEncoderCompatible(format, encCodes[codecCode]))) {
 			return false;
 		}
 		return true;
 	}
 	
-	static boolean IsCodecSupported(int codecCode, String customVEnc) {
+	static boolean isCodecSupported(int codecCode, String customVEnc) {
 		if ((encCodes[codecCode]<0 && avcodec_find_encoder_by_name(customVEnc) == null) ||
 				(encCodes[codecCode]>0 && avcodec_find_encoder(encCodes[codecCode]) == null)) {
 				return false;
@@ -884,8 +884,8 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param srcImp ImagePlus instance providing initial dimensions of image
 	 *  @param vWidth desired width of video frame. 
 	 */
-	public boolean InitRecorder(String path, ImagePlus srcImp, int vWidth){
-		return initialized = InitRecorder(path, srcImp, vWidth, 25.0, 
+	public boolean initRecorder(String path, ImagePlus srcImp, int vWidth){
+		return initialized = initRecorder(path, srcImp, vWidth, 25.0, 
 				(int) (vWidth*vWidth*srcImp.getHeight()*1024.0/614400/srcImp.getWidth()));
 	}
 
@@ -901,9 +901,9 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param frameRate desired framerate in fps
 	 *  @param bRate desired bitrate in bps
 	 */
-	public boolean InitRecorder(String path, ImagePlus srcImp, int vWidth, double frameRate, int bRate) {
+	public boolean initRecorder(String path, ImagePlus srcImp, int vWidth, double frameRate, int bRate) {
 		
-		return initialized = InitRecorder(path, srcImp.getWidth(), srcImp.getHeight(), vWidth, frameRate, bRate);
+		return initialized = initRecorder(path, srcImp.getWidth(), srcImp.getHeight(), vWidth, frameRate, bRate);
 	}
 	
 	
@@ -918,8 +918,8 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param vWidth desired width of video frame. 
 	 *  @param vHeight desired height of video frame.
 	 */
-	public boolean InitRecorder(String path, int vWidth, int vHeight) {   	
-		return initialized = InitRecorder(path, vWidth, vHeight, 25.0, (int) (vWidth*vHeight*1024.0/614400));
+	public boolean initRecorder(String path, int vWidth, int vHeight) {   	
+		return initialized = initRecorder(path, vWidth, vHeight, 25.0, (int) (vWidth*vHeight*1024.0/614400));
 	}
 	
 	/** Initializes and starts FFmpegFrameRecorder with default settings:
@@ -934,8 +934,8 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param srcHeight height of initial image
 	 *  @param vWidth desired width of video frame. 
 	 */
-	public boolean InitRecorder(String path, int srcWidth, int srcHeight, int vWidth) {
-		return initialized = InitRecorder(path, srcWidth, srcHeight, vWidth, 25.0, 
+	public boolean initRecorder(String path, int srcWidth, int srcHeight, int vWidth) {
+		return initialized = initRecorder(path, srcWidth, srcHeight, vWidth, 25.0, 
 				(int) (vWidth*vWidth*srcHeight*1024.0/614400/srcWidth));
 	}
 	
@@ -952,7 +952,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param frameRate desired framerate in fps
 	 *  @param bRate desired bitrate in bps
 	 */
-	public boolean InitRecorder(String path, int srcWidth, int srcHeght, int vWidth, double frameRate, int bRate) {
+	public boolean initRecorder(String path, int srcWidth, int srcHeght, int vWidth, double frameRate, int bRate) {
 		if (vWidth<8){
 			IJ.log("Incorrect output width");
 			initialized = false;
@@ -977,7 +977,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 			return false;
 		}
 
-		return initialized = InitRecorder(path, videoWidth, videoHeight, frameRate, bRate);
+		return initialized = initRecorder(path, videoWidth, videoHeight, frameRate, bRate);
 	}
 	
 	/** Initializes and starts FFmpegFrameRecorder with default settings:
@@ -992,7 +992,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param frameRate desired framerate in fps
 	 *  @param bRate desired bitrate in bps
 	 */
-	public boolean InitRecorder(String path, int vWidth, int vHeight, double frameRate, int bRate) {
+	public boolean initRecorder(String path, int vWidth, int vHeight, double frameRate, int bRate) {
 		
 		
 		if (vWidth<8 || vHeight<8){
@@ -1004,7 +1004,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
     	videoWidth=vWidth + (vWidth%8==0?0:(8-vWidth%8));
     	videoHeight=vHeight + (vHeight%8==0?0:(8-vHeight%8));
     	
-		return initialized = InitRecorder(path, videoWidth, videoHeight, 
+		return initialized = initRecorder(path, videoWidth, videoHeight, 
 				AV_PIX_FMT_NONE, frameRate, bRate, AV_CODEC_ID_MPEG4, null, "avi",
 				10, null, null);
 	}
@@ -1029,7 +1029,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param vKeys a list of additional video option keys
 	 *  @param vOptions a list of corresponding options  
 	 */
-	private boolean InitRecorder(String path, int srcWidth, int srcHeght, 
+	private boolean initRecorder(String path, int srcWidth, int srcHeght, 
 			int vWidth, double frameRate, int bRate, String video_format, int codec_code, String v_codec_custom,
 			ArrayList<String> vKeys, ArrayList<String> vOptions) {
 		if (vWidth<8){
@@ -1069,7 +1069,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 			return false;
 		}
 		int v_codec = encCodes[codec_code];
-		return initialized = InitRecorder(path, videoWidth, videoHeight, 
+		return initialized = initRecorder(path, videoWidth, videoHeight, 
 				AV_PIX_FMT_NONE, frameRate, bRate, v_codec, v_codec_custom, video_format,
 				0,  vKeys, vOptions);
 	}
@@ -1088,7 +1088,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 *  @param vKeys a list of additional video option keys
 	 *  @param vOptions a list of corresponding options
 	 */
-	public boolean InitRecorder(String path, int vWidth, int vHeight, 
+	public boolean initRecorder(String path, int vWidth, int vHeight, 
 			int pixFmt, double frameRate, int bRate, int vcodec, String vcodecName, String vFmt,
 			int gopSize, ArrayList<String> vKeys, ArrayList<String> vOptions) {
 		
@@ -1195,7 +1195,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	/** Stops record and releases resources.
 	 * Should be called at the end of record. 
 	 */
-	public void StopRecorder() throws Exception {
+	public void stopRecorder() throws Exception {
 		recorder.stop();//.close();
 		initialized = false;
 	}
@@ -1206,7 +1206,7 @@ private boolean CheckJavaCV(String version, boolean treatAsMinVer, String compon
 	 * parameters specified in a InitRecorder(...) function
 	 *  @param ip ImageProcessor of the image to encode 
 	 */
-	public void EncodeFrame(ImageProcessor ip){
+	public void encodeFrame(ImageProcessor ip){
 		if (frameHeightBorder!=0 || frameWidthBorder!=0) frame_ARGB = 
 			converter.convert(
 //				((new CanvasResizer()).expandImage(ip, frameWidth, frameHeight+frameHeightBorder, 
@@ -1318,7 +1318,7 @@ class SetupDialog  extends NonBlockingGenericDialog {
 						customVEnc:avcodec_find_encoder(FFmpeg_FrameRecorder.encCodes[codecCode]).name().getString()).toUpperCase()+"]";
 
 
-			if(!FFmpeg_FrameRecorder.IsCodecSupported(codecCode, customVEnc)) {
+			if(!FFmpeg_FrameRecorder.isCodecSupported(codecCode, customVEnc)) {
 				IJ.showMessage("Error", "Selected encoder " + codec + " is not supported");
 				return;
 			}
