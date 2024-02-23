@@ -15,9 +15,7 @@ import ij.Macro;
 import ij.Menus;
 import ij.Prefs;
 import ij.gui.NonBlockingGenericDialog;
-import ij.gui.Toolbar;
 import ij.io.SaveDialog;
-import ij.plugin.CanvasResizer;
 import ij.plugin.filter.PlugInFilter;
 import ij.process.ImageProcessor;
 import net.imagej.updater.CommandLine;
@@ -72,13 +70,11 @@ import org.bytedeco.ffmpeg.avcodec.AVCodec;
 import org.bytedeco.ffmpeg.avformat.AVOutputFormat;
 import org.bytedeco.javacpp.IntPointer;
 import org.bytedeco.javacpp.Pointer;
-import org.bytedeco.javacpp.PointerPointer;
-
 import static org.bytedeco.ffmpeg.avcodec.AVCodecContext.*;
 
 
 
-@SuppressWarnings("deprecation")
+//@SuppressWarnings("deprecation")
 public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	
 	static final String formatByExt = "by file extension";
@@ -221,16 +217,12 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		return pluginVersion;
 	}
 	
-private boolean checkJavaCV(String version, boolean treatAsMinVer, String components) {
+	private boolean checkJavaCV(String version, boolean treatAsMinVer, String components) {
 		
 		String javaCVInstallCommand = "Install JavaCV libraries";
     	Hashtable table = Menus.getCommands();
 		String javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
 		if (javaCVInstallClassName==null) {
-//			IJ.showMessage("JavaCV check", "JavaCV Installer not found.\n"
-//					+"Please install it from from JavaCVInstaller update site:\n"
-//					+"https://sites.imagej.net/JavaCVInstaller/");
-			
 			int result = JOptionPane.showConfirmDialog(null,
 					"<html><h2>JavaCV Installer not found.</h2>"
 							+ "<br>Please install it from from JavaCVInstaller update site:"

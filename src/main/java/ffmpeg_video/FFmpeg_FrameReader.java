@@ -177,10 +177,6 @@ private boolean checkJavaCV(String version, boolean treatAsMinVer, String compon
     	Hashtable table = Menus.getCommands();
 		String javaCVInstallClassName = (String)table.get(javaCVInstallCommand);
 		if (javaCVInstallClassName==null) {
-//			IJ.showMessage("JavaCV check", "JavaCV Installer not found.\n"
-//					+"Please install it from from JavaCVInstaller update site:\n"
-//					+"https://sites.imagej.net/JavaCVInstaller/");
-			
 			int result = JOptionPane.showConfirmDialog(null,
 					"<html><h2>JavaCV Installer not found.</h2>"
 							+ "<br>Please install it from from JavaCVInstaller update site:"
