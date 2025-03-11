@@ -14,7 +14,7 @@
 
 	<groupId>anotherche.plugins.imagej</groupId> 
     <artifactId>FFmpeg_Video</artifactId>
-    <version>0.5.0</version>
+    <version>0.6.0</version>
 	
 	<name>FFmpeg_Video.jar</name>
 	<description>Two ImageJ plugins for import and export of compressed video using javacv and ffmpeg library .
