@@ -147,7 +147,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 //			IJ.showMessage("FFmpeg Viseo Import/Export", "Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
 //		}
 
-		if (!checkJavaCV("1.5", true, "ffmpeg"))
+		if (!checkJavaCV("1.5.8", true, "ffmpeg"))
 			return;
 		// System.setProperty("org.bytedeco.javacpp.logger", "slf4j");
 		// System.setProperty("org.bytedeco.javacpp.logger.debug", "true");
