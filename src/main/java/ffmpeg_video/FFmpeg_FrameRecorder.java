@@ -88,7 +88,8 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 	private static final int[] logLevCodes = new int[] { AV_LOG_QUIET, AV_LOG_PANIC, AV_LOG_FATAL, AV_LOG_ERROR,
 			AV_LOG_WARNING, AV_LOG_INFO, AV_LOG_VERBOSE, AV_LOG_DEBUG };
 
-	private static final String pluginVersion = "0.4.3";
+	private static final String pluginVersion = "0.6.2";
+	private static final String minimalRequiredVersion = "1.5.10";
 
 	private static List<AVCodec> ffmpegEncoders;
 	static List<AVOutputFormat> ffmpegFormats;
@@ -147,7 +148,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 //			IJ.showMessage("FFmpeg Viseo Import/Export", "Please restart ImageJ to proceed with installation of necessary JavaCV libraries.");
 //		}
 
-		if (!checkJavaCV("1.5.8", true, "ffmpeg"))
+		if (!checkJavaCV(minimalRequiredVersion, true, "ffmpeg"))
 			return;
 		// System.setProperty("org.bytedeco.javacpp.logger", "slf4j");
 		// System.setProperty("org.bytedeco.javacpp.logger.debug", "true");
