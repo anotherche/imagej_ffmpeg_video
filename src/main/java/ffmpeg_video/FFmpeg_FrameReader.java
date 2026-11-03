@@ -31,6 +31,7 @@ import ij.Prefs;
 import ij.VirtualStack;
 import ij.WindowManager;
 import ij.gui.NonBlockingGenericDialog;
+import ij.gui.GenericDialog;
 import ij.io.FileInfo;
 import ij.io.OpenDialog;
 import ij.process.ByteProcessor;
@@ -110,6 +111,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	private int nHSChannels = 1;
 	private int nHSSlices = 1;
 	private int nHSFrames = 1;
+	private int keyFrameInterval;
 
 	@Override
 	public void run(String arg) {
@@ -282,7 +284,19 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 						IJ.log("Number of frames = " + nb_frames_estimated);
 						IJ.log("Average frame rate = " + frameRate);
 					}
-
+					
+					int keyFrameNum = 0;
+					long tst = 0;
+					while(keyFrameNum < 5 && grabber.grabFrame(false, true, false, true, false) != null) {
+					    keyFrameNum++;
+					    tst = grabber.getTimestamp();
+					}
+					keyFrameInterval = (int)frameRate;
+					if (keyFrameNum < 1 && tst > 0) {
+					    double meanTime = tst / (double) AV_TIME_BASE / (keyFrameNum - 1);
+					    keyFrameInterval = (int)(frameRate * meanTime);
+					}
+					grabber.restart();
 				} catch (Exception e) {
 					e.printStackTrace();
 					return false;
@@ -491,403 +505,483 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 		return stack;
 	}
 
+	// ==========================================
+    // MAIN TABBED DIALOG
+    // ==========================================
 	private boolean showDialog(String path) {
 
-		if (!IJ.isMacro()) {
-			convertToGray = staticConvertToGray;
-			flipVertical = staticFlipVertical;
-
-		}
-
-		if (initImport(path)) {
-			IJ.log("--------------");
-			IJ.log("File name: " + fileName);
-			IJ.log("Estimated number of frames = " + nb_frames_estimated);
-			IJ.log("Frames in video stream = " + nb_frames_in_video);
-			IJ.log("Total number of frames = " + nTotalFrames);
-			IJ.log("Format = " + grabber.getFormat());
-			IJ.log("Duration = " + video_duration + " s");// (grabber.getLengthInTime()/(AV_TIME_BASE*1.0))+" s");
-			IJ.log("Video duration = " + video_stream_duration + " s");
-			IJ.log("Avarage frame rate = " + getFrameRate());// grabber.getFrameRate());
-			IJ.log("Width = " + grabber.getImageWidth());
-			IJ.log("Height = " + grabber.getImageHeight());
-			IJ.log("Rotation = " + grabber.getDisplayRotation());
-
-			previewImp = new ImagePlus();
-			Frame previewFrame = null;
-			try {
-				if (filter != null) {
-					filter.push(grabber.grabImage());
-					previewFrame = filter.pull();
-				} else {
-					previewFrame = grabber.grabImage();
-				}
-				trueStartTime = grabber.getTimestamp();
-				currentFrame = 0;
-			} catch (Exception e2) {
-
-				e2.printStackTrace();
-			}
-
-			if (!IJ.isMacro()) {
-				if (previewFrame != null && previewFrame.image != null) {
-					ImageProcessor previewIp = new ColorProcessor(converter.convert(previewFrame));
-					previewImp.setProcessor("preview frame 0, timestamp: " + grabber.getTimestamp(), previewIp);
-					previewImp.show();
-
-				} else {
-					ImageProcessor previewIp = new ColorProcessor(getWidth(), getHeight());
-					label(previewIp, "No frame decoded: # " + currentFrame, Color.white);
-				}
-			}
-
-			NonBlockingGenericDialog gd = new NonBlockingGenericDialog("Import settings");
-			int numericFieldIndex = 0;
-			int checkBoxIndex = 0;
-
-			gd.addMessage("File name: " + fileName + "\nFormat = " + grabber.getFormat() + "\nWidth x Height = "
-					+ grabber.getImageWidth() + " x " + grabber.getImageHeight() + "\nDuration = " + video_duration
-					+ " s"// (grabber.getLengthInTime()/(AV_TIME_BASE*1.0))+" s"
-					+ "\nVideo duration = " + video_stream_duration + " s" + "\nAverage frame rate = " + getFrameRate() // grabber.getFrameRate()
-					+ "\nEstimated number of frames = " + nb_frames_estimated
-					+ "\nNumber of frames specified in video stream info = " + nb_frames_in_video);
-			Panel TotFramesPan = new Panel();
-			gd.addPanel(TotFramesPan);
-
-			final Label TotFramesLbl = new Label("Total number of frames: " + nTotalFrames);
-			TotFramesPan.add(TotFramesLbl);
-
-			final Checkbox TotFramesOption = new Checkbox("Prefer number of frames specified in video stream",
-					nTotalFrames == nb_frames_in_video);
-			TotFramesOption.setEnabled(nb_frames_in_video > 0);
-			TotFramesPan.add(TotFramesOption);
-
-			Panel previewPanel = new Panel();
-
-			Label previewLbl = new Label("Preview frame...");
-			previewPanel.add(previewLbl);
-
-			final JSlider frameSlider = new JSlider(0, nTotalFrames - 1, 0);
-			previewPanel.add(frameSlider);
-
-			final TextField previewFrameNum = new TextField("0", 12);// ((TextField)gd.getNumericFields().elementAt(3));
-			previewPanel.add(previewFrameNum);
-
-			final Button setFirstButt = new Button("Set first");
-			previewPanel.add(setFirstButt);
-
-			final Button setLastButt = new Button("Set last");
-			previewPanel.add(setLastButt);
-
-			gd.addPanel(previewPanel);
-
-			gd.addMessage("Specify a range of frames to import from the video.\n"
-					+ "Positive numbers are frame positions from the beginning (0 = the first frame).\n"
-					+ "Negative numbers correspond to positions counted from the end (-1 = the last frame)");
-
-			gd.addNumericField("First_frame", 0, 0);
-			final TextField firstField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
-
-			gd.addNumericField("Last_frame", -1, 0);
-			final TextField lastField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
-
-			gd.addNumericField("Number_of_frames to import", nTotalFrames, 0);
-			final TextField framesToImportField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
-			framesToImportField.setEnabled(false);
-
-			gd.addCheckbox("Convert_to_Grayscale", convertToGray);
-			final Checkbox grayCheckBox = ((Checkbox) gd.getCheckboxes().elementAt(checkBoxIndex++));
-
-			gd.addCheckbox("Flip_Vertical", flipVertical);
-			checkBoxIndex++;
-
-			final String[] streamOperations = new String[] { "leave as is", "decimate", "transform to hyperstack" };
-			gd.addChoice("Frame_sequence operations", streamOperations, streamOperations[0]);
-			final Choice streamOpChoice = ((Choice) gd.getChoices().elementAt(0));
-
-			gd.addNumericField("Decimate_by (select every nth frame) ", 1, 0);
-			final TextField decimateField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
-			decimateField.setEnabled(streamOpChoice.getSelectedIndex() == 1);
-
-			gd.addChoice("Hyperstack_order", orders, orders[ordering]);
-			final Choice orderChoice = (Choice) gd.getChoices().elementAt(1);
-			orderChoice.setEnabled(streamOpChoice.getSelectedIndex() == 2);
-
-			gd.addNumericField("Slices_(z):", nTotalFrames, 0);
-			final TextField slicesField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
-			slicesField.setEnabled(streamOpChoice.getSelectedIndex() == 2);
-
-			gd.addNumericField("Frames_(t):", 1, 0);
-			final TextField framesField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
-			framesField.setEnabled(streamOpChoice.getSelectedIndex() == 2);
-
-			gd.addCheckbox("Convert_RGB_to_3 Channel Hyperstack", splitRGB);
-			final Checkbox splitCheckBox = ((Checkbox) gd.getCheckboxes().elementAt(checkBoxIndex++));
-			splitCheckBox.setEnabled(
-					!grayCheckBox.getState() && streamOpChoice.getSelectedItem().equalsIgnoreCase(streamOperations[2]));
-
-			gd.addChoice("Log_level", logLevels, logLevels[logLevel]);
-
-			previewFrameNum.addTextListener(new TextListener() {
-				public void textValueChanged(TextEvent e) {
-
-					try {
-						if (previewFrameNum.getText().trim().isEmpty())
-							return;
-						int frameNum = Integer.parseUnsignedInt(previewFrameNum.getText());
-						if (frameNum >= nTotalFrames)
-							frameNum = nTotalFrames - 1;
-						if (frameNum != frameSlider.getValue())
-							frameSlider.setValue(frameNum);
-						try {
-							grabber.setVideoTimestamp(
-									Math.round((long) AV_TIME_BASE * frameNum / frameRate) + trueStartTime);// setFrameNumber(frameNum);
-							Frame previewFrame = null;
-							if (filter != null) {
-								filter.push(grabber.grabImage());
-								previewFrame = filter.pull();
-							} else {
-								previewFrame = grabber.grabImage();
-							}
-
-							currentFrame = frameNum;
-							ImageProcessor previewIp;
-							if (previewFrame != null && previewFrame.image != null) {
-								previewIp = new ColorProcessor(converter.convert(previewFrame));
-							} else {
-								previewIp = new ColorProcessor(getWidth(), getHeight());
-								label(previewIp, "No frame decoded: # " + frameNum, Color.white);
-								IJ.log("Null frame at " + frameNum);// +"
-																	// ("+getFrameNumberRounded(grabber.getTimestamp())+")");
-							}
-
-							if (!IJ.isMacro()) {
-								if (previewImp == null)
-									previewImp = new ImagePlus();
-								if (!previewImp.isVisible())
-									previewImp.show();
-								previewImp.setProcessor(
-										"preview frame " + frameNum + ", timestamp: " + grabber.getTimestamp(),
-										previewIp);
-							}
-
-						} catch (Exception e1) {
-							e1.printStackTrace();
-						}
-
-					} catch (NumberFormatException e1) {
-						IJ.log("Enter a non-negative integer number");
-					}
-
-				}
-			});
-
-			frameSlider.addChangeListener(new ChangeListener() {
-				@Override
-				public void stateChanged(ChangeEvent e) {
-					int frameNum = frameSlider.getValue();
-					if (!previewFrameNum.getText().equals(String.valueOf(frameNum)))
-						previewFrameNum.setText(String.valueOf(frameNum));
-				}
-
-			});
-
-			TotFramesOption.addItemListener(new ItemListener() {
-
-				@Override
-				public void itemStateChanged(ItemEvent e) {
-					preferStream = TotFramesOption.getState();
-					if (preferStream && nb_frames_in_video > 0) {
-						nTotalFrames = nb_frames_in_video;
-						IJ.log("Total number of frames set according to the video stream info: " + nTotalFrames);
-					} else {
-						nTotalFrames = nb_frames_estimated;
-						IJ.log("Total number of frames set according to estimation: " + nTotalFrames);
-					}
-					TotFramesLbl.setText("Total number of frames: " + nTotalFrames);
-					frameSlider.setMaximum(nTotalFrames);
-					int firstVal = Integer.parseInt(firstField.getText());
-					int lastVal = Integer.parseInt(lastField.getText());
-					int nVidFrames = 1 + (lastVal + (lastVal < 0 ? nTotalFrames : 0))
-							- (firstVal + (firstVal < 0 ? nTotalFrames : 0));
-					framesField.setText("" + 1);
-					slicesField.setText("" + nVidFrames);
-					framesToImportField.setText("" + nVidFrames);
-				}
-
-			});
-
-			firstField.addTextListener(new TextListener() {
-
-				@Override
-				public void textValueChanged(TextEvent e) {
-					try {
-						int firstVal = Integer.parseInt(firstField.getText());
-						int firstAbs = firstVal + (firstVal < 0 ? nTotalFrames : 0);
-						if (firstAbs >= nTotalFrames - 1 || firstAbs < 0) {
-							firstField.setText("0");
-							return;
-						}
-						int lastVal = Integer.parseInt(lastField.getText());
-						int lastAbs = lastVal + (lastVal < 0 ? nTotalFrames : 0);
-						if (firstAbs >= lastAbs) {
-							lastField.setText("-1");
-							lastVal = -1;
-						}
-						int nVidFrames = 1 + (lastVal + (lastVal < 0 ? nTotalFrames : 0))
-								- (firstVal + (firstVal < 0 ? nTotalFrames : 0));
-						framesField.setText("" + 1);
-						slicesField.setText("" + nVidFrames);
-						framesToImportField.setText("" + nVidFrames);
-					} catch (NumberFormatException e1) {
-					}
-
-				}
-			});
-
-			lastField.addTextListener(new TextListener() {
-
-				@Override
-				public void textValueChanged(TextEvent e) {
-					try {
-						int firstVal = Integer.parseInt(firstField.getText());
-						int firstAbs = firstVal + (firstVal < 0 ? nTotalFrames : 0);
-						int lastVal = Integer.parseInt(lastField.getText());
-						int lastAbs = lastVal + (lastVal < 0 ? nTotalFrames : 0);
-						if (lastAbs >= nTotalFrames || lastAbs <= 0) {
-							lastField.setText("-1");
-							return;
-						}
-						if (lastAbs <= firstAbs) {
-							firstField.setText("0");
-							firstVal = 0;
-						}
-						int nVidFrames = 1 + (lastVal + (lastVal < 0 ? nTotalFrames : 0))
-								- (firstVal + (firstVal < 0 ? nTotalFrames : 0));
-						framesField.setText("" + 1);
-						slicesField.setText("" + nVidFrames);
-						framesToImportField.setText("" + nVidFrames);
-					} catch (NumberFormatException e1) {
-					}
-
-				}
-			});
-
-			streamOpChoice.addItemListener(new ItemListener() {
-
-				@Override
-				public void itemStateChanged(ItemEvent e) {
-					String selected = streamOpChoice.getSelectedItem();
-					boolean decimate = selected.equalsIgnoreCase(streamOperations[1]);
-					boolean makeHS = selected.equalsIgnoreCase(streamOperations[2]);
-					decimateField.setEnabled(decimate);
-					slicesField.setEnabled(makeHS);
-					framesField.setEnabled(makeHS);
-					orderChoice.setEnabled(makeHS);
-					splitCheckBox.setEnabled(!grayCheckBox.getState() && makeHS);
-				}
-			});
-
-			grayCheckBox.addItemListener(new ItemListener() {
-
-				@Override
-				public void itemStateChanged(ItemEvent e) {
-					String selected = streamOpChoice.getSelectedItem();
-					splitCheckBox
-							.setEnabled(!grayCheckBox.getState() && selected.equalsIgnoreCase(streamOperations[2]));
-				}
-			});
-
-			setFirstButt.addActionListener(new ActionListener() {
-
-				@Override
-				public void actionPerformed(ActionEvent e) {
-					int position = frameSlider.getValue();
-					if (position == nTotalFrames - 1) {
-						IJ.showMessage("The last frame cannot be selectd as first!");
-						return;
-					}
-					int lastVal = Integer.parseInt(lastField.getText());
-					int lastAbs = lastVal + (lastVal < 0 ? nTotalFrames : 0);
-					if (lastAbs <= position)
-						lastAbs = nTotalFrames - 1;
-					firstField.setText("" + position);
-					lastField.setText("" + lastAbs);
-
-				}
-			});
-
-			setLastButt.addActionListener(new ActionListener() {
-
-				@Override
-				public void actionPerformed(ActionEvent e) {
-					int position = frameSlider.getValue();
-					if (position == 0) {
-						IJ.showMessage("The first frame cannot be selectd as last!");
-						return;
-					}
-					int firstVal = Integer.parseInt(firstField.getText());
-					int firstAbs = firstVal + (firstVal < 0 ? nTotalFrames : 0);
-					if (firstAbs >= position)
-						firstAbs = 0;
-					firstField.setText("" + firstAbs);
-					lastField.setText("" + position);
-
-				}
-			});
-
-			gd.setSmartRecording(true);
-			gd.pack();
-			gd.showDialog();
-			previewImp.changes = false;
-			previewImp.close();
-			if (gd.wasCanceled())
-				return false;
-			try {
-				grabber.restart();
-				currentFrame = -1;
-			} catch (Exception e1) {
-				e1.printStackTrace();
-			}
-
-			firstFrame = (int) gd.getNextNumber();
-			lastFrame = (int) gd.getNextNumber();
-			int numFramesToImport = (int) gd.getNextNumber(); // workaround for unnecessary NumericField
-			convertToGray = gd.getNextBoolean();
-			flipVertical = gd.getNextBoolean();
-			String streamOp = gd.getNextChoice();
-			convertToHS = false;
-			decimateBy = 1;
-			int decby = (int) gd.getNextNumber();
-			if (streamOp.equalsIgnoreCase(streamOperations[1]))
-				decimateBy = decby;
-			else if (streamOp.equalsIgnoreCase(streamOperations[2]))
-				convertToHS = true;
-			ordering = gd.getNextChoiceIndex();
-			nHSChannels = 1;
-			nHSSlices = (int) gd.getNextNumber();
-			nHSFrames = (int) gd.getNextNumber();
-			splitRGB = gd.getNextBoolean();
-			if (splitRGB && !convertToGray)
-				nHSChannels = 3;
-
-			if (!IJ.isMacro()) {
-				staticConvertToGray = convertToGray;
-				staticFlipVertical = flipVertical;
-			}
-
-			logLevel = gd.getNextChoiceIndex();
-			av_log_set_level(logLevCodes[logLevel]);
-
-			IJ.register(this.getClass());
-			return true;
-		} else {
-			IJ.showMessage("Error", "The file cannot be open as video");
-		}
-		return false;
-
+	    if (!IJ.isMacro()) {
+	        convertToGray = staticConvertToGray;
+	        flipVertical = staticFlipVertical;
+	    }
+
+	    if (initImport(path)) {
+	        IJ.log("--------------");
+	        IJ.log("File name: " + fileName);
+	        IJ.log("Estimated number of frames = " + nb_frames_estimated);
+	        IJ.log("Frames in video stream = " + nb_frames_in_video);
+	        IJ.log("Total number of frames = " + nTotalFrames);
+	        IJ.log("Format = " + grabber.getFormat());
+	        IJ.log("Duration = " + video_duration + " s");
+	        IJ.log("Video duration = " + video_stream_duration + " s");
+	        IJ.log("Avarage frame rate = " + getFrameRate());
+	        IJ.log("Average I frame interval = " + keyFrameInterval);
+	        IJ.log("Width = " + grabber.getImageWidth());
+	        IJ.log("Height = " + grabber.getImageHeight());
+	        IJ.log("Rotation = " + grabber.getDisplayRotation());
+
+	        previewImp = new ImagePlus();
+	        Frame previewFrame = null;
+	        try {
+	            if (filter != null) {
+	                filter.push(grabber.grabImage());
+	                previewFrame = filter.pull();
+	            } else {
+	                previewFrame = grabber.grabImage();
+	            }
+	            trueStartTime = grabber.getTimestamp();
+	            currentFrame = 0;
+	        } catch (Exception e2) {
+	            e2.printStackTrace();
+	        }
+
+	        if (!IJ.isMacro()) {
+	            if (previewFrame != null && previewFrame.image != null) {
+	                ImageProcessor previewIp = new ColorProcessor(converter.convert(previewFrame));
+	                previewImp.setProcessor("preview frame 0, timestamp: " + grabber.getTimestamp(), previewIp);
+	                previewImp.show();
+	            } else {
+	                ImageProcessor previewIp = new ColorProcessor(getWidth(), getHeight());
+	                label(previewIp, "No frame decoded: # " + currentFrame, Color.white);
+	            }
+	        }
+
+	        NonBlockingGenericDialog gd = new NonBlockingGenericDialog("Import settings");
+	        int numericFieldIndex = 0;
+	        int checkBoxIndex = 0;
+
+	        // ==========================================
+	        // 1. THE TAB BUTTONS PANEL
+	        // ==========================================
+	        final String[] sections = {"1. Info & Range", "2. Image processing", "3. Sequence operations", "4. Logging"};
+	        
+	        Panel tabBar = new Panel(new java.awt.GridLayout(1, 4, 5, 0));
+	        tabBar.setName("TAB_BAR"); 
+
+	        final Button btn1 = new Button(sections[0]);
+	        final Button btn2 = new Button(sections[1]);
+	        final Button btn3 = new Button(sections[2]);
+	        final Button btn4 = new Button(sections[3]);
+
+	        tabBar.add(btn1);
+	        tabBar.add(btn2);
+	        tabBar.add(btn3);
+	        tabBar.add(btn4);
+	        
+	        gd.addPanel(tabBar);
+
+	        // tab activation
+	        java.util.function.Consumer<String> activateTab = (activeSection) -> {
+	            btn1.setBackground(null);
+	            btn2.setBackground(null);
+	            btn3.setBackground(null);
+	            btn4.setBackground(null);
+
+	            if (activeSection.equals(sections[0])) btn1.setBackground(java.awt.Color.LIGHT_GRAY);
+	            else if (activeSection.equals(sections[1])) btn2.setBackground(java.awt.Color.LIGHT_GRAY);
+	            else if (activeSection.equals(sections[2])) btn3.setBackground(java.awt.Color.LIGHT_GRAY);
+	            else if (activeSection.equals(sections[3])) btn4.setBackground(java.awt.Color.LIGHT_GRAY);
+
+	            switchSection(gd, activeSection);
+	        };
+
+	        btn1.addActionListener(e -> activateTab.accept(sections[0]));
+	        btn2.addActionListener(e -> activateTab.accept(sections[1]));
+	        btn3.addActionListener(e -> activateTab.accept(sections[2]));
+	        btn4.addActionListener(e -> activateTab.accept(sections[3]));
+
+
+	        // ==========================================
+	        // 2. SECTIONS AND COMPONENTS DEFINITION
+	        // ==========================================
+	        
+	        // --- section 1: Info & Range selection ---
+	        String fileInfoString = "File name: " + fileName 
+	                + "\nFormat = " + grabber.getFormat() 
+	                + "\nImage size = " + grabber.getImageWidth() + " x " + grabber.getImageHeight() 
+	                + "\nDuration = " + String.format("%.6f", video_duration) + " s"
+	                + "\nVideo stream duration = " + String.format("%.6f", video_stream_duration) + " s" 
+	                + "\nAverage frame rate = " + String.format("%.6f", getFrameRate())
+	                + "\nEstimated frames = " + nb_frames_estimated
+	                + "\nStream info frames = " + nb_frames_in_video;
+
+	        gd.addMessage(fileInfoString);
+	        tagLastComponent(gd, sections[0]);
+
+	        Panel TotFramesPan = new Panel();
+	        final Label TotFramesLbl = new Label("Total frames: " + nTotalFrames);
+	        TotFramesPan.add(TotFramesLbl);
+	        final Checkbox TotFramesOption = new Checkbox("Prefer stream info frames", nTotalFrames == nb_frames_in_video);
+	        TotFramesOption.setEnabled(nb_frames_in_video > 0);
+	        TotFramesPan.add(TotFramesOption);
+	        gd.addPanel(TotFramesPan);
+	        tagLastComponent(gd, sections[0]);
+
+	        Panel previewPanel = new Panel();
+	        previewPanel.add(new Label("Preview frame..."));
+	        final JSlider frameSlider = new JSlider(0, nTotalFrames - 1, 0);
+	        previewPanel.add(frameSlider);
+	        final TextField previewFrameNum = new TextField("0", 8);
+	        previewPanel.add(previewFrameNum);
+	        final Button setFirstButt = new Button("Set as first");
+	        previewPanel.add(setFirstButt);
+	        final Button setLastButt = new Button("Set as last");
+	        previewPanel.add(setLastButt);
+	        gd.addPanel(previewPanel);
+	        tagLastComponent(gd, sections[0]);
+
+	        gd.addMessage("Specify a range (0 is first, -1 is last)");
+	        tagLastComponent(gd, sections[0]);
+
+	        gd.addNumericField("First_frame", 0, 0);
+	        final TextField firstField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
+	        tagLastTwoComponents(gd, sections[0]);
+
+	        gd.addNumericField("Last_frame", -1, 0);
+	        final TextField lastField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
+	        tagLastTwoComponents(gd, sections[0]);
+
+	        gd.addNumericField("Number_of_frames to import", nTotalFrames, 0);
+	        final TextField framesToImportField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
+	        framesToImportField.setEnabled(false);
+	        tagLastTwoComponents(gd, sections[0]);
+
+	        // --- section 2: Image processing ---
+	        gd.addCheckbox("Convert_to_Grayscale", convertToGray);
+	        final Checkbox grayCheckBox = ((Checkbox) gd.getCheckboxes().elementAt(checkBoxIndex++));
+	        tagLastComponent(gd, sections[1]); 
+
+	        gd.addCheckbox("Flip_Vertical", flipVertical);
+	        checkBoxIndex++;
+	        tagLastComponent(gd, sections[1]);
+
+	        // --- section 3: Sequence operations ---
+	        final String[] streamOperations = new String[] { "leave as is", "decimate", "transform to hyperstack" };
+	        gd.addChoice("Frame_sequence operations", streamOperations, streamOperations[0]);
+	        final Choice streamOpChoice = ((Choice) gd.getChoices().elementAt(0)); 
+	        tagLastTwoComponents(gd, sections[2]);
+
+	        gd.addNumericField("Decimate_by (nth frame)", 1, 0);
+	        final TextField decimateField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
+	        decimateField.setEnabled(streamOpChoice.getSelectedIndex() == 1);
+	        tagLastTwoComponents(gd, sections[2]);
+
+	        gd.addChoice("Hyperstack_order", orders, orders[ordering]);
+	        final Choice orderChoice = (Choice) gd.getChoices().elementAt(1); 
+	        orderChoice.setEnabled(streamOpChoice.getSelectedIndex() == 2);
+	        tagLastTwoComponents(gd, sections[2]);
+
+	        gd.addNumericField("Slices_(z):", nTotalFrames, 0);
+	        final TextField slicesField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
+	        slicesField.setEnabled(streamOpChoice.getSelectedIndex() == 2);
+	        tagLastTwoComponents(gd, sections[2]);
+
+	        gd.addNumericField("Frames_(t):", 1, 0);
+	        final TextField framesField = ((TextField) gd.getNumericFields().elementAt(numericFieldIndex++));
+	        framesField.setEnabled(streamOpChoice.getSelectedIndex() == 2);
+	        tagLastTwoComponents(gd, sections[2]);
+
+	        gd.addCheckbox("Convert_RGB_to_3 Channel Hyperstack", splitRGB);
+	        final Checkbox splitCheckBox = ((Checkbox) gd.getCheckboxes().elementAt(checkBoxIndex++));
+	        splitCheckBox.setEnabled(!grayCheckBox.getState() && streamOpChoice.getSelectedItem().equalsIgnoreCase(streamOperations[2]));
+	        tagLastComponent(gd, sections[2]);
+
+	        // --- section 4: Logging ---
+	        gd.addChoice("Log_level", logLevels, logLevels[logLevel]);
+	        tagLastTwoComponents(gd, sections[3]);
+
+
+	        // ==========================================
+	        // Interactive listeners
+	        // ==========================================
+
+	        // preview frame listeners
+	        previewFrameNum.addTextListener(new TextListener() {
+	            public void textValueChanged(TextEvent e) {
+	                try {
+	                    if (previewFrameNum.getText().trim().isEmpty()) return;
+	                    int frameNum = Integer.parseUnsignedInt(previewFrameNum.getText());
+	                    if (frameNum >= nTotalFrames) frameNum = nTotalFrames - 1;
+	                    if (frameNum != frameSlider.getValue()) frameSlider.setValue(frameNum);
+	                    
+	                    try {
+	                        grabber.setVideoTimestamp(Math.round((long) AV_TIME_BASE * frameNum / frameRate) + trueStartTime);
+	                        Frame prevFrame = null;
+	                        if (filter != null) {
+	                            filter.push(grabber.grabImage());
+	                            prevFrame = filter.pull();
+	                        } else {
+	                            prevFrame = grabber.grabImage();
+	                        }
+	                        currentFrame = frameNum;
+	                        ImageProcessor previewIp;
+	                        if (prevFrame != null && prevFrame.image != null) {
+	                            previewIp = new ColorProcessor(converter.convert(prevFrame));
+	                        } else {
+	                            previewIp = new ColorProcessor(getWidth(), getHeight());
+	                            label(previewIp, "No frame decoded: # " + frameNum, Color.white);
+	                            IJ.log("Null frame at " + frameNum);
+	                        }
+	                        if (!IJ.isMacro()) {
+	                            if (previewImp == null) previewImp = new ImagePlus();
+	                            if (!previewImp.isVisible()) previewImp.show();
+	                            previewImp.setProcessor("preview frame " + frameNum + ", timestamp: " + grabber.getTimestamp(), previewIp);
+	                        }
+	                    } catch (Exception e1) { e1.printStackTrace(); }
+	                } catch (NumberFormatException e1) {
+	                    IJ.log("Enter a non-negative integer number");
+	                }
+	            }
+	        });
+
+	        // preview slider listener
+	        frameSlider.addChangeListener(new ChangeListener() {
+	            @Override
+	            public void stateChanged(ChangeEvent e) {
+	                int frameNum = frameSlider.getValue();
+	                if (!previewFrameNum.getText().equals(String.valueOf(frameNum)))
+	                    previewFrameNum.setText(String.valueOf(frameNum));
+	            }
+	        });
+
+	        // frame number source selector listener
+	        TotFramesOption.addItemListener(new ItemListener() {
+	            @Override
+	            public void itemStateChanged(ItemEvent e) {
+	                preferStream = TotFramesOption.getState();
+	                if (preferStream && nb_frames_in_video > 0) {
+	                    nTotalFrames = nb_frames_in_video;
+	                    IJ.log("Total number of frames set according to the video stream info: " + nTotalFrames);
+	                } else {
+	                    nTotalFrames = nb_frames_estimated;
+	                    IJ.log("Total number of frames set according to estimation: " + nTotalFrames);
+	                }
+	                TotFramesLbl.setText("Total number of frames: " + nTotalFrames);
+	                frameSlider.setMaximum(nTotalFrames);
+	                
+	                int firstVal = Integer.parseInt(firstField.getText());
+	                int lastVal = Integer.parseInt(lastField.getText());
+	                int nVidFrames = 1 + (lastVal + (lastVal < 0 ? nTotalFrames : 0)) - (firstVal + (firstVal < 0 ? nTotalFrames : 0));
+	                framesField.setText("" + 1);
+	                slicesField.setText("" + nVidFrames);
+	                framesToImportField.setText("" + nVidFrames);
+	            }
+	        });
+
+	        // First frame listener
+	        firstField.addTextListener(new TextListener() {
+	            @Override
+	            public void textValueChanged(TextEvent e) {
+	                try {
+	                    int firstVal = Integer.parseInt(firstField.getText());
+	                    int firstAbs = firstVal + (firstVal < 0 ? nTotalFrames : 0);
+	                    if (firstAbs >= nTotalFrames - 1 || firstAbs < 0) { firstField.setText("0"); return; }
+	                    int lastVal = Integer.parseInt(lastField.getText());
+	                    int lastAbs = lastVal + (lastVal < 0 ? nTotalFrames : 0);
+	                    if (firstAbs >= lastAbs) { lastField.setText("-1"); lastVal = -1; }
+	                    int nVidFrames = 1 + (lastVal + (lastVal < 0 ? nTotalFrames : 0)) - (firstVal + (firstVal < 0 ? nTotalFrames : 0));
+	                    framesField.setText("" + 1);
+	                    slicesField.setText("" + nVidFrames);
+	                    framesToImportField.setText("" + nVidFrames);
+	                } catch (NumberFormatException e1) {}
+	            }
+	        });
+
+	        // Last frame listener
+	        lastField.addTextListener(new TextListener() {
+	            @Override
+	            public void textValueChanged(TextEvent e) {
+	                try {
+	                    int firstVal = Integer.parseInt(firstField.getText());
+	                    int firstAbs = firstVal + (firstVal < 0 ? nTotalFrames : 0);
+	                    int lastVal = Integer.parseInt(lastField.getText());
+	                    int lastAbs = lastVal + (lastVal < 0 ? nTotalFrames : 0);
+	                    if (lastAbs >= nTotalFrames || lastAbs <= 0) { lastField.setText("-1"); return; }
+	                    if (lastAbs <= firstAbs) { firstField.setText("0"); firstVal = 0; }
+	                    int nVidFrames = 1 + (lastVal + (lastVal < 0 ? nTotalFrames : 0)) - (firstVal + (firstVal < 0 ? nTotalFrames : 0));
+	                    framesField.setText("" + 1);
+	                    slicesField.setText("" + nVidFrames);
+	                    framesToImportField.setText("" + nVidFrames);
+	                } catch (NumberFormatException e1) {}
+	            }
+	        });
+
+	        // frame sequence operation selector listener
+	        streamOpChoice.addItemListener(new ItemListener() {
+	            @Override
+	            public void itemStateChanged(ItemEvent e) {
+	                String selected = streamOpChoice.getSelectedItem();
+	                boolean decimate = selected.equalsIgnoreCase(streamOperations[1]);
+	                boolean makeHS = selected.equalsIgnoreCase(streamOperations[2]);
+	                decimateField.setEnabled(decimate);
+	                slicesField.setEnabled(makeHS);
+	                framesField.setEnabled(makeHS);
+	                orderChoice.setEnabled(makeHS);
+	                splitCheckBox.setEnabled(!grayCheckBox.getState() && makeHS);
+	            }
+	        });
+
+	        // Grayscale checkbox listener
+	        grayCheckBox.addItemListener(new ItemListener() {
+	            @Override
+	            public void itemStateChanged(ItemEvent e) {
+	                String selected = streamOpChoice.getSelectedItem();
+	                splitCheckBox.setEnabled(!grayCheckBox.getState() && selected.equalsIgnoreCase(streamOperations[2]));
+	            }
+	        });
+
+	        // Set as first button listener
+	        setFirstButt.addActionListener(new ActionListener() {
+	            @Override
+	            public void actionPerformed(ActionEvent e) {
+	                int position = frameSlider.getValue();
+	                if (position == nTotalFrames - 1) { IJ.showMessage("The last frame cannot be selectd as first!"); return; }
+	                int lastVal = Integer.parseInt(lastField.getText());
+	                int lastAbs = lastVal + (lastVal < 0 ? nTotalFrames : 0);
+	                if (lastAbs <= position) lastAbs = nTotalFrames - 1;
+	                firstField.setText("" + position);
+	                lastField.setText("" + lastAbs);
+	            }
+	        });
+
+	        // Set as last button listener
+	        setLastButt.addActionListener(new ActionListener() {
+	            @Override
+	            public void actionPerformed(ActionEvent e) {
+	                int position = frameSlider.getValue();
+	                if (position == 0) { IJ.showMessage("The first frame cannot be selectd as last!"); return; }
+	                int firstVal = Integer.parseInt(firstField.getText());
+	                int firstAbs = firstVal + (firstVal < 0 ? nTotalFrames : 0);
+	                if (firstAbs >= position) firstAbs = 0;
+	                firstField.setText("" + firstAbs);
+	                lastField.setText("" + position);
+	            }
+	        });
+
+	        // ==========================================
+	        // 4. DIALOG FINALIZATION
+	        // ==========================================
+	        
+	        activateTab.accept(sections[0]);
+
+	        gd.setSmartRecording(true);
+	        gd.pack();
+	        gd.showDialog();
+	        
+	        previewImp.changes = false;
+	        previewImp.close();
+	        if (gd.wasCanceled()) return false;
+	        
+	        try {
+	            grabber.restart();
+	            currentFrame = -1;
+	        } catch (Exception e1) {
+	            e1.printStackTrace();
+	        }
+
+	        // ==========================================
+	        // 5. READ FIELDS
+	        // ==========================================
+	        firstFrame = (int) gd.getNextNumber();
+	        lastFrame = (int) gd.getNextNumber();
+	        int numFramesToImport = (int) gd.getNextNumber(); 
+	        convertToGray = gd.getNextBoolean();
+	        flipVertical = gd.getNextBoolean();
+	        String streamOp = gd.getNextChoice();
+	        convertToHS = false;
+	        decimateBy = 1;
+	        int decby = (int) gd.getNextNumber();
+	        if (streamOp.equalsIgnoreCase(streamOperations[1])) decimateBy = decby;
+	        else if (streamOp.equalsIgnoreCase(streamOperations[2])) convertToHS = true;
+	        ordering = gd.getNextChoiceIndex();
+	        nHSChannels = 1;
+	        nHSSlices = (int) gd.getNextNumber();
+	        nHSFrames = (int) gd.getNextNumber();
+	        splitRGB = gd.getNextBoolean();
+	        if (splitRGB && !convertToGray) nHSChannels = 3;
+
+	        if (!IJ.isMacro()) {
+	            staticConvertToGray = convertToGray;
+	            staticFlipVertical = flipVertical;
+	        }
+
+	        logLevel = gd.getNextChoiceIndex();
+	        av_log_set_level(logLevCodes[logLevel]);
+
+	        IJ.register(this.getClass());
+	        return true;
+	    } else {
+	        IJ.showMessage("Error", "The file cannot be open as video");
+	    }
+	    return false;
 	}
 
+	// ==========================================
+	// HELPERS FOR THE TABBED DIALOG
+	// ==========================================
+
+	private void tagLastComponent(GenericDialog gd, String sectionName) {
+	    Component[] comps = gd.getComponents();
+	    if (comps.length > 0) {
+	        comps[comps.length - 1].setName(sectionName);
+	    }
+	}
+
+	private void tagLastTwoComponents(GenericDialog gd, String sectionName) {
+	    Component[] comps = gd.getComponents();
+	    if (comps.length > 1) {
+	        comps[comps.length - 1].setName(sectionName);
+	        comps[comps.length - 2].setName(sectionName);
+	    }
+	}
+
+	private void switchSection(GenericDialog gd, String selectedSection) {
+	    Component[] comps = gd.getComponents();
+	    
+	    for (Component c : comps) {
+	        if ("TAB_BAR".equals(c.getName())) {
+	            c.setVisible(true);
+	        }
+	        else if (c instanceof java.awt.Panel) {
+	            java.awt.Panel p = (java.awt.Panel) c;
+	            boolean isButtonsPanel = false;
+	            
+	            for (Component child : p.getComponents()) {
+	                if (child instanceof java.awt.Button) {
+	                    String label = ((java.awt.Button) child).getLabel();
+	                    if (label != null && label.trim().equals("OK")) {
+	                        isButtonsPanel = true;
+	                        break;
+	                    }
+	                }
+	            }
+	            
+	            if (isButtonsPanel) {
+	                c.setVisible(true);
+	            } else {
+	                c.setVisible(selectedSection.equals(c.getName()));
+	            }
+	        }
+	        else {
+	            c.setVisible(selectedSection.equals(c.getName()));
+	        }
+	    }
+	    
+	    gd.pack();
+	    gd.repaint();
+	}
+	//end of the tabbed dialog
+	
 	private void label(ImageProcessor ip, String msg, Color color) {
 		int size = getHeight() / 20;
 		if (size < 9)
@@ -952,6 +1046,18 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 							resFrame = grabber.grabImage();
 						}
 						tst = grabber.getTimestamp();
+					} else if ((n_video - 1) * decimateBy + firstFrame > currentFrame + 1 && (n_video - 1) * decimateBy + firstFrame < currentFrame + keyFrameInterval) {
+					    int tmpCurrent = currentFrame;
+					    while ((n_video - 1) * decimateBy + firstFrame - 1 > tmpCurrent++) {
+					        grabber.grabFrame(false,  true,  false, false, false);
+					    }
+					    if (filter != null) {
+                            filter.push(grabber.grabImage());
+                            resFrame = filter.pull();
+                        } else {
+                            resFrame = grabber.grabImage();
+                        }
+                        tst = grabber.getTimestamp();
 					} else if ((n_video - 1) * decimateBy + firstFrame > 0) {
 						grabber.setVideoTimestamp(
 								Math.round((long) AV_TIME_BASE * ((n_video - 1) * decimateBy + firstFrame) / frameRate)

@@ -348,7 +348,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		gd.addMessage("Instruction: 1. Select slices to encode. 2. Set width of the output video.\n"
 				+ "Output heigth will be scaled proportional (both dimensions will be aligned to 8 pixels)\n"
 				+ "3. Specify frame rate in frames per second 4. Specify bitrate of the compressed video (in kbps).\n"
-				+ "The bitrate is calculated as H*W*(25 fps)*(0.1 bps)/1024. Adjust if necessary or set 0 for auto.\n"
+				+ "The auto bitrate is calculated as H*W*(25 fps)*(0.1 bps)/1024. Adjust if necessary or set 0 for auto.\n"
 				+ "4. Select output format and video encoder. Default format is determined by the file extension\n"
 				+ "Default encoder is determined by the format. Select \"custom\", to use a different encoder among available.\n"
 				+ "5. Optionally specify additional encoder settings.\n"
@@ -386,7 +386,7 @@ public class FFmpeg_FrameRecorder implements AutoCloseable, PlugInFilter {
 		customEncPanel.add(btn_getCompatibleFormats);
 		gd.addPanel(customEncPanel);
 
-		gd.addCheckbox("Show_progress by stack update (slows down the conversion)", initialShowProgressOption);
+		gd.addCheckbox("Show_progress by stack update (may slow down the conversion somewhat)", initialShowProgressOption);
 		gd.addCheckbox("Add_timestamp to the file name", initialTimeStampOption);
 		gd.addChoice("Log_level", logLevels, logLevels[logLevel]);
 
