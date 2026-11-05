@@ -563,7 +563,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	        // ==========================================
 	        // 1. THE TAB BUTTONS PANEL
 	        // ==========================================
-	        final String[] sections = {"1. Info & Range", "2. Image processing", "3. Sequence operations", "4. Logging"};
+	        final String[] sections = {"1. Preview and select", "2. Image processing", "3. Sequence operations", "4. Logging"};
 	        
 	        Panel tabBar = new Panel(new java.awt.GridLayout(1, 4, 5, 0));
 	        tabBar.setName("TAB_BAR"); 
@@ -640,7 +640,7 @@ public class FFmpeg_FrameReader extends VirtualStack implements AutoCloseable, P
 	        gd.addPanel(previewPanel);
 	        tagLastComponent(gd, sections[0]);
 
-	        gd.addMessage("Specify a range (0 is first, -1 is last)");
+	        gd.addMessage("Specify the range of frames to import (zero based, negative indices count from the end)");
 	        tagLastComponent(gd, sections[0]);
 
 	        gd.addNumericField("First_frame", 0, 0);
